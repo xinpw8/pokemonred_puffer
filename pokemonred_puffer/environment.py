@@ -137,7 +137,7 @@ class RedGymEnv(Env):
             window_type=head,
         )
 
-        self.screen = self.pyboy.botsupport_manager().screen()
+        self.screen = self.pyboy.screen
 
         if not config["headless"]:
             self.pyboy.set_emulation_speed(6)
@@ -254,7 +254,7 @@ class RedGymEnv(Env):
 
     def render(self, reduce_res=False):
         # (144, 160, 3)
-        game_pixels_render = self.screen.screen_ndarray()[:, :, 0:1]
+        game_pixels_render = self.screen.ndarray[:, :, 0:1]
         # place an overlay on top of the screen greying out places we haven't visited
         # first get our location
         player_x, player_y, map_n = self.get_game_coords()
@@ -393,8 +393,8 @@ class RedGymEnv(Env):
         return obs, new_reward, False, step_limit_reached, info
 
     def find_neighboring_sign(self, sign_id, player_direction, player_x, player_y) -> bool:
-        sign_y = self.pyboy.get_memory_value(0xD4B1 + (2 * sign_id))
-        sign_x = self.pyboy.get_memory_value(0xD4B1 + (2 * sign_id + 1))
+        sign_y = self.pyboy.memory[0xD4B1 + (2 * sign_id)]
+        sign_x = self.pyboy.memory[0xD4B1 + (2 * sign_id + 1)]
 
         # Check if player is facing the sign (skip sign direction)
         # 0 - down, 4 - up, 8 - left, 0xC - right
@@ -408,8 +408,8 @@ class RedGymEnv(Env):
         )
 
     def find_neighboring_npc(self, npc_id, player_direction, player_x, player_y) -> int:
-        npc_y = self.pyboy.get_memory_value(0xC104 + (npc_id * 0x10))
-        npc_x = self.pyboy.get_memory_value(0xC106 + (npc_id * 0x10))
+        npc_y = self.pyboy.memory[0xC104 + (npc_id * 0x10)]
+        npc_x = self.pyboy.memory[0xC106 + (npc_id * 0x10)]
 
         # Check if player is facing the NPC (skip NPC direction)
         # 0 - down, 4 - up, 8 - left, 0xC - right
@@ -430,8 +430,10 @@ class RedGymEnv(Env):
         # press button then release after some steps
         self.pyboy.send_input(self.valid_actions[action])
         # disable rendering when we don't need it
+        """
         if not self.save_video and self.headless:
             self.pyboy._rendering(False)
+
         for i in range(self.act_freq):
             # release action, so they are stateless
             if i == 8 and action < len(self.release_actions):
@@ -444,35 +446,39 @@ class RedGymEnv(Env):
                 # rendering must be enabled on the tick before frame is needed
                 self.pyboy._rendering(True)
             self.pyboy.tick()
+        """
+        self.pyboy.tick(8, False)
+        self.pyboy.send_input(self.release_actions[action])
+        self.pyboy.tick(self.act_freq - 8)
 
         # check if the font is loaded
-        if self.pyboy.get_memory_value(0xCFC4):
+        if self.pyboy.memory[0xCFC4]:
             # check if we are talking to a hidden object:
-            player_direction = self.pyboy.get_memory_value(0xC109)
-            player_y_tiles = self.pyboy.get_memory_value(0xD361)
-            player_x_tiles = self.pyboy.get_memory_value(0xD362)
+            player_direction = self.pyboy.memory[0xC109]
+            player_y_tiles = self.pyboy.memory[0xD361]
+            player_x_tiles = self.pyboy.memory[0xD362]
             if (
-                self.pyboy.get_memory_value(0xCD3D) != 0x0
-                and self.pyboy.get_memory_value(0xCD3E) != 0x0
+                self.pyboy.memory[0xCD3D] != 0x0
+                and self.pyboy.memory[0xCD3E] != 0x0
             ):
                 # add hidden object to seen hidden objects
                 self.seen_hidden_objs[
                     (
-                        self.pyboy.get_memory_value(0xD35E),
-                        self.pyboy.get_memory_value(0xCD3F),
+                        self.pyboy.memory[0xD35E],
+                        self.pyboy.memory[0xCD3F],
                     )
                 ] = 1
             elif any(
                 self.find_neighboring_sign(
                     sign_id, player_direction, player_x_tiles, player_y_tiles
                 )
-                for sign_id in range(self.pyboy.get_memory_value(0xD4B0))
+                for sign_id in range(self.pyboy.memory[0xD4B0])
             ):
                 pass
             else:
                 # get information for player
-                player_y = self.pyboy.get_memory_value(0xC104)
-                player_x = self.pyboy.get_memory_value(0xC106)
+                player_y = self.pyboy.memory[0xC104]
+                player_x = self.pyboy.memory[0xC106]
                 # get the npc who is closest to the player and facing them
                 # we go through all npcs because there are npcs like
                 # nurse joy who can be across a desk and still talk to you
@@ -483,12 +489,12 @@ class RedGymEnv(Env):
                         self.find_neighboring_npc(npc_id, player_direction, player_x, player_y),
                         npc_id,
                     )
-                    for npc_id in range(1, self.pyboy.get_memory_value(0xD4E1))
+                    for npc_id in range(1, self.pyboy.memory[0xD4E1])
                 )
                 npc_candidates = [x for x in npc_distances if x[0]]
                 if npc_candidates:
                     _, npc_id = min(npc_candidates, key=lambda x: x[0])
-                    self.seen_npcs[(self.pyboy.get_memory_value(0xD35E), npc_id)] = 1
+                    self.seen_npcs[(self.pyboy.memory[0xD35E], npc_id)] = 1
 
         if self.save_video and self.fast_video:
             self.add_video_frame()
@@ -611,7 +617,7 @@ class RedGymEnv(Env):
         return done
 
     def read_m(self, addr):
-        return self.pyboy.get_memory_value(addr)
+        return self.pyboy.memory[addr]
 
     def read_bit(self, addr, bit: int) -> bool:
         # add padding so zero will read '0b100000000' instead of '0b0'
@@ -704,8 +710,8 @@ class RedGymEnv(Env):
 
     def update_pokedex(self):
         for i in range(0xD30A - 0xD2F7):
-            caught_mem = self.pyboy.get_memory_value(i + 0xD2F7)
-            seen_mem = self.pyboy.get_memory_value(i + 0xD30A)
+            caught_mem = self.pyboy.memory[i + 0xD2F7]
+            seen_mem = self.pyboy.memory[i + 0xD30A]
             for j in range(8):
                 self.caught_pokemon[8 * i + j] = 1 if caught_mem & (1 << j) else 0
                 self.seen_pokemon[8 * i + j] = 1 if seen_mem & (1 << j) else 0
@@ -713,20 +719,20 @@ class RedGymEnv(Env):
     def update_moves_obtained(self):
         # Scan party
         for i in [0xD16B, 0xD197, 0xD1C3, 0xD1EF, 0xD21B, 0xD247]:
-            if self.pyboy.get_memory_value(i) != 0:
+            if self.pyboy.memory[i] != 0:
                 for j in range(4):
-                    move_id = self.pyboy.get_memory_value(i + j + 8)
+                    move_id = self.pyboy.memory[i + j + 8]
                     if move_id != 0:
                         if move_id != 0:
                             self.moves_obtained[move_id] = 1
         # Scan current box (since the box doesn't auto increment in pokemon red)
         num_moves = 4
         box_struct_length = 25 * num_moves * 2
-        for i in range(self.pyboy.get_memory_value(0xDA80)):
+        for i in range(self.pyboy.memory[0xDA80]):
             offset = i * box_struct_length + 0xDA96
-            if self.pyboy.get_memory_value(offset) != 0:
+            if self.pyboy.memory[offset] != 0:
                 for j in range(4):
-                    move_id = self.pyboy.get_memory_value(offset + j + 8)
+                    move_id = self.pyboy.memory[offset + j + 8]
                     if move_id != 0:
                         self.moves_obtained[move_id] = 1
 

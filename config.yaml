@@ -61,14 +61,14 @@ sweep:
 pokemon_red:
   package: pokemon_red
   train:
-    total_timesteps: 100_000_000
-    num_envs: 96
-    envs_per_worker: 1
+    total_timesteps: 200_000_000_000
+    num_envs: 48
+    envs_per_worker: 2
     envpool_batch_size: 16 # 32
     update_epochs: 3 
     gamma: 0.998
-    batch_size: 32768
-    batch_rows: 128
+    batch_size: 20480
+    batch_rows: 64
 
 pokemon-red:
   package: pokemon_red
