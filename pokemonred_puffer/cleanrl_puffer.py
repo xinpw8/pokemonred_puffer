@@ -263,8 +263,8 @@ class CleanPuffeRL:
         if hasattr(self.agent, "lstm"):
             shape = (self.agent.lstm.num_layers, total_agents, self.agent.lstm.hidden_size)
             self.next_lstm_state = (
-                torch.zeros(shape, device=self.device),
-                torch.zeros(shape, device=self.device),
+                torch.zeros(shape, device=self.device, dtype=torch.float16),
+                torch.zeros(shape, device=self.device, dtype=torch.float16),
             )
         self.obs = torch.zeros(config.batch_size + 1, *obs_shape, device=self.obs_device)
         self.actions = torch.zeros(config.batch_size + 1, *atn_shape, dtype=int, device=self.device)
@@ -347,18 +347,18 @@ class CleanPuffeRL:
                     next_lstm_state = self.next_lstm_state
                     if next_lstm_state is not None:
                         next_lstm_state = (
-                            next_lstm_state[0][:, env_id],
-                            next_lstm_state[1][:, env_id],
+                            next_lstm_state[0][:, env_id].to(dtype=torch.float16, non_blocking=True),
+                            next_lstm_state[1][:, env_id].to(dtype=torch.float16, non_blocking=True),
                         )
 
                     actions, logprob, value, next_lstm_state = self.policy_pool.forwards(
-                        o, next_lstm_state
+                        o.to(dtype=torch.float16, non_blocking=True), next_lstm_state
                     )
 
                     if next_lstm_state is not None:
                         h, c = next_lstm_state
-                        self.next_lstm_state[0][:, env_id] = h
-                        self.next_lstm_state[1][:, env_id] = c
+                        self.next_lstm_state[0][:, env_id] = h.to(dtype=torch.float16)
+                        self.next_lstm_state[1][:, env_id] = c.to(dtype=torch.float16)
 
                     value = value.flatten()
 
@@ -388,7 +388,7 @@ class CleanPuffeRL:
                     self.pool.send(actions.to(device="cpu", non_blocking=True).numpy())
 
         self.global_step += padded_steps_collected
-        self.reward = torch.mean(self.rewards).float().item()
+        self.reward = torch.mean(self.rewards).half().item()
         self.SPS = int(padded_steps_collected / eval_profiler.elapsed)
 
         perf = self.performance
@@ -432,140 +432,142 @@ class CleanPuffeRL:
         config = self.config
         # assert data.num_steps % bptt_horizon == 0, "num_steps must be divisible by bptt_horizon"
         with pufferlib.utils.Profiler(memory=True, pytorch_memory=True) as train_profiler:
-            # Anneal learning rate
-            frac = 1.0 - (self.update - 1.0) / self.total_updates
-            lrnow = frac * config.learning_rate
-            self.optimizer.param_groups[0]["lr"] = lrnow
-
-            if config.anneal_lr:
+            with torch.autocast(device_type=self.device, dtype=torch.float16):
+                # Anneal learning rate
                 frac = 1.0 - (self.update - 1.0) / self.total_updates
                 lrnow = frac * config.learning_rate
                 self.optimizer.param_groups[0]["lr"] = lrnow
 
-            num_minibatches = config.batch_size // config.bptt_horizon // config.batch_rows
-            assert (
-                num_minibatches > 0
-            ), "config.batch_size // config.bptt_horizon // config.batch_rows must be > 0"
-            idxs = sorted(range(len(self.sort_keys)), key=self.sort_keys.__getitem__)
-            self.sort_keys = []
-            b_idxs = (
-                torch.tensor(idxs, dtype=torch.long)[:-1]
-                .reshape(config.batch_rows, num_minibatches, config.bptt_horizon)
-                .transpose(0, 1)
-            )
+                if config.anneal_lr:
+                    frac = 1.0 - (self.update - 1.0) / self.total_updates
+                    lrnow = frac * config.learning_rate
+                    self.optimizer.param_groups[0]["lr"] = lrnow
 
-            # bootstrap value if not done
-            with torch.no_grad():
-                advantages = torch.zeros(config.batch_size, device=self.device)
-                lastgaelam = 0
-                for t in reversed(range(config.batch_size)):
-                    i, i_nxt = idxs[t], idxs[t + 1]
-                    nextnonterminal = 1.0 - self.dones[i_nxt]
-                    nextvalues = self.values[i_nxt]
-                    delta = (
-                        self.rewards[i_nxt]
-                        + config.gamma * nextvalues * nextnonterminal
-                        - self.values[i]
-                    )
-                    advantages[t] = lastgaelam = (
-                        delta + config.gamma * config.gae_lambda * nextnonterminal * lastgaelam
-                    )
+                num_minibatches = config.batch_size // config.bptt_horizon // config.batch_rows
+                assert (
+                    num_minibatches > 0
+                ), "config.batch_size // config.bptt_horizon // config.batch_rows must be > 0"
+                idxs = sorted(range(len(self.sort_keys)), key=self.sort_keys.__getitem__)
+                self.sort_keys = []
+                b_idxs = (
+                    torch.tensor(idxs, dtype=torch.long)[:-1]
+                    .reshape(config.batch_rows, num_minibatches, config.bptt_horizon)
+                    .transpose(0, 1)
+                )
 
-            # Flatten the batch
-            self.b_obs = b_obs = self.obs[b_idxs]
-            b_actions = self.actions[b_idxs]
-            b_logprobs = self.logprobs[b_idxs]
-            b_dones = self.dones[b_idxs]
-            b_values = self.values[b_idxs]
-            b_advantages = advantages.reshape(
-                config.batch_rows, num_minibatches, config.bptt_horizon
-            ).transpose(0, 1)
-            b_returns = b_advantages + b_values
-
-            # Optimizing the policy and value network
-            train_time = time.time()
-            pg_losses, entropy_losses, v_losses, clipfracs, old_kls, kls = [], [], [], [], [], []
-            for epoch in range(config.update_epochs):
-                lstm_state = None
-                for mb in range(num_minibatches):
-                    mb_obs = b_obs[mb].to(self.device, non_blocking=True)
-                    mb_actions = b_actions[mb].contiguous()
-                    mb_values = b_values[mb].reshape(-1)
-                    mb_advantages = b_advantages[mb].reshape(-1)
-                    mb_returns = b_returns[mb].reshape(-1)
-
-                    if hasattr(self.agent, "lstm"):
-                        (
-                            _,
-                            newlogprob,
-                            entropy,
-                            newvalue,
-                            lstm_state,
-                        ) = self.agent.get_action_and_value(
-                            mb_obs, state=lstm_state, action=mb_actions
+                # bootstrap value if not done
+                with torch.no_grad():
+                    advantages = torch.zeros(config.batch_size, device=self.device, dtype=torch.float16)
+                    lastgaelam = 0
+                    for t in reversed(range(config.batch_size)):
+                        i, i_nxt = idxs[t], idxs[t + 1]
+                        nextnonterminal = 1.0 - self.dones[i_nxt]
+                        nextvalues = self.values[i_nxt]
+                        delta = (
+                            self.rewards[i_nxt]
+                            + config.gamma * nextvalues * nextnonterminal
+                            - self.values[i]
                         )
-                        lstm_state = (lstm_state[0].detach(), lstm_state[1].detach())
-                    else:
-                        _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
-                            mb_obs.reshape(-1, *self.pool.single_observation_space.shape),
-                            action=mb_actions,
+                        advantages[t] = lastgaelam = (
+                            delta + config.gamma * config.gae_lambda * nextnonterminal * lastgaelam
                         )
 
-                    logratio = newlogprob - b_logprobs[mb].reshape(-1)
-                    ratio = logratio.exp()
+                # Flatten the batch
+                self.b_obs = b_obs = self.obs[b_idxs]
+                b_actions = self.actions[b_idxs]
+                b_logprobs = self.logprobs[b_idxs]
+                b_dones = self.dones[b_idxs]
+                b_values = self.values[b_idxs]
+                b_advantages = advantages.reshape(
+                    config.batch_rows, num_minibatches, config.bptt_horizon
+                ).transpose(0, 1)
+                b_returns = b_advantages + b_values
 
-                    with torch.no_grad():
-                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
-                        old_approx_kl = (-logratio).mean()
-                        old_kls.append(old_approx_kl.item())
-                        approx_kl = ((ratio - 1) - logratio).mean()
-                        kls.append(approx_kl.item())
-                        clipfracs += [
-                            ((ratio - 1.0).abs() > config.clip_coef).float().mean().item()
-                        ]
+                # Optimizing the policy and value network
+                train_time = time.time()
+                pg_losses, entropy_losses, v_losses, clipfracs, old_kls, kls = [], [], [], [], [], []
+                for epoch in range(config.update_epochs):
+                    lstm_state = None
+                    for mb in range(num_minibatches):
+                        mb_obs = b_obs[mb].to(self.device, non_blocking=True, dtype=torch.float16)
+                        mb_actions = b_actions[mb].contiguous()
+                        mb_values = b_values[mb].reshape(-1)
+                        mb_advantages = b_advantages[mb].reshape(-1)
+                        mb_returns = b_returns[mb].reshape(-1)
 
-                    mb_advantages = mb_advantages.reshape(-1)
-                    if config.norm_adv:
-                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
-                            mb_advantages.std() + 1e-8
+                        if hasattr(self.agent, "lstm"):
+                            (
+                                _,
+                                newlogprob,
+                                entropy,
+                                newvalue,
+                                lstm_state,
+                            ) = self.agent.get_action_and_value(
+                                mb_obs, state=lstm_state, action=mb_actions
+                            )
+                            lstm_state = (lstm_state[0].detach(), lstm_state[1].detach())
+                        else:
+                            _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
+                                mb_obs.reshape(-1, *self.pool.single_observation_space.shape),
+                                action=mb_actions,
+                            )
+
+                        logratio = newlogprob - b_logprobs[mb].reshape(-1)
+                        ratio = logratio.exp()
+
+                        with torch.no_grad():
+                            # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                            old_approx_kl = (-logratio).mean()
+                            old_kls.append(old_approx_kl.item())
+                            approx_kl = ((ratio - 1) - logratio).mean()
+                            kls.append(approx_kl.item())
+                            clipfracs += [
+                                ((ratio - 1.0).abs() > config.clip_coef).half().mean().item()
+                            ]
+
+                        mb_advantages = mb_advantages.reshape(-1)
+                        if config.norm_adv:
+                            mb_advantages = (mb_advantages - mb_advantages.mean()) / (
+                                mb_advantages.std() + 1e-8
+                            )
+
+                        # Policy loss
+                        pg_loss1 = -mb_advantages * ratio
+                        pg_loss2 = -mb_advantages * torch.clamp(
+                            ratio, 1 - config.clip_coef, 1 + config.clip_coef
                         )
+                        pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+                        pg_losses.append(pg_loss.item())
 
-                    # Policy loss
-                    pg_loss1 = -mb_advantages * ratio
-                    pg_loss2 = -mb_advantages * torch.clamp(
-                        ratio, 1 - config.clip_coef, 1 + config.clip_coef
-                    )
-                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-                    pg_losses.append(pg_loss.item())
+                        # Value loss
+                        newvalue = newvalue.view(-1)
+                        if config.clip_vloss:
+                            v_loss_unclipped = (newvalue - mb_returns) ** 2
+                            v_clipped = mb_values + torch.clamp(
+                                newvalue - mb_values,
+                                -config.vf_clip_coef,
+                                config.vf_clip_coef,
+                            )
+                            v_loss_clipped = (v_clipped - mb_returns) ** 2
+                            v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                            v_loss = 0.5 * v_loss_max.mean()
+                        else:
+                            v_loss = 0.5 * ((newvalue - mb_returns) ** 2).mean()
+                        v_losses.append(v_loss.item())
 
-                    # Value loss
-                    newvalue = newvalue.view(-1)
-                    if config.clip_vloss:
-                        v_loss_unclipped = (newvalue - mb_returns) ** 2
-                        v_clipped = mb_values + torch.clamp(
-                            newvalue - mb_values,
-                            -config.vf_clip_coef,
-                            config.vf_clip_coef,
-                        )
-                        v_loss_clipped = (v_clipped - mb_returns) ** 2
-                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-                        v_loss = 0.5 * v_loss_max.mean()
-                    else:
-                        v_loss = 0.5 * ((newvalue - mb_returns) ** 2).mean()
-                    v_losses.append(v_loss.item())
+                        entropy_loss = entropy.mean()
+                        entropy_losses.append(entropy_loss.item())
 
-                    entropy_loss = entropy.mean()
-                    entropy_losses.append(entropy_loss.item())
-
-                    loss = pg_loss - config.ent_coef * entropy_loss + v_loss * config.vf_coef
+                        loss = pg_loss - config.ent_coef * entropy_loss + v_loss * config.vf_coef
+                        loss = loss
                     self.optimizer.zero_grad()
                     loss.backward()
                     nn.utils.clip_grad_norm_(self.agent.parameters(), config.max_grad_norm)
                     self.optimizer.step()
 
-                if config.target_kl is not None:
-                    if approx_kl > config.target_kl:
-                        break
+                    if config.target_kl is not None:
+                        if approx_kl > config.target_kl:
+                            break
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
@@ -601,11 +603,11 @@ class CleanPuffeRL:
         self.pool.close()
 
         if self.wandb is not None:
-            artifact_name = f"{self.exp_name}_model"
-            artifact = self.wandb.Artifact(artifact_name, type="model")
-            model_path = self.save_checkpoint()
-            artifact.add_file(model_path)
-            self.wandb.run.log_artifact(artifact)
+            # artifact_name = f"{self.exp_name}_model"
+            # artifact = self.wandb.Artifact(artifact_name, type="model")
+            # model_path = self.save_checkpoint()
+            # artifact.add_file(model_path)
+            # self.wandb.run.log_artifact(artifact)
             self.wandb.finish()
 
     def save_checkpoint(self):
