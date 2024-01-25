@@ -600,12 +600,12 @@ class CleanPuffeRL:
                         nn.utils.clip_grad_norm_(self.agent.parameters(), config.max_grad_norm)
                         self.optimizer.step()
 
+                        prof.step()
+                    prof.export_chrome_trace("train.json")
+                    raise
                     if config.target_kl is not None:
                         if approx_kl > config.target_kl:
                             break
-                    prof.step()
-                prof.export_chrome_trace("train.json")
-                raise
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
