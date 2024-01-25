@@ -373,6 +373,19 @@ class CleanPuffeRL:
                     # TODO: Find a way to avoid having to do this
                     learner_mask = mask * self.policy_pool.mask
 
+                    idxs = np.where(learner_mask)[0]
+                    max_idx = min(ptr + len(idxs), config.batch_size + 1)
+                    idxs = idxs[: max_idx - ptr]
+                    self.obs[ptr : ptr + len(idxs)] = o[idxs]
+                    self.values[ptr : ptr + len(idxs)] = value[idxs]
+                    self.actions[ptr : ptr + len(idxs)] = actions[idxs]
+                    self.logprobs[ptr : ptr + len(idxs)] = logprob[idxs]
+                    self.sort_keys.extend(zip(env_id[idxs], step * np.ones_like(idxs)))
+                    if len(d) != 0:
+                        self.rewards[ptr : ptr + len(idxs)] = r[idxs]
+                        self.dones[ptr : ptr + len(idxs)] = d[idxs]
+                    ptr += len(idxs)
+                    """
                     for idx in np.where(learner_mask)[0]:
                         if ptr == config.batch_size + 1:
                             break
@@ -385,6 +398,7 @@ class CleanPuffeRL:
                             self.rewards[ptr] = r[idx]
                             self.dones[ptr] = d[idx]
                         ptr += 1
+                    """
 
                     for policy_name, policy_i in i.items():
                         for agent_i in policy_i:
