@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import os
 import random
 import time
@@ -318,12 +319,15 @@ class CleanPuffeRL:
         with pufferlib.utils.Profiler(memory=True, pytorch_memory=True) as eval_profiler:
             ptr = step = padded_steps_collected = agent_steps_collected = 0
             infos = defaultdict(lambda: defaultdict(list))
+            """
             with profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=schedule(wait=1, warmup=0, active=2, repeat=1),
                 with_modules=True,
                 with_stack=True,
             ) as prof:
+            """
+            with nullcontext():
                 while True:
                     step += 1
                     if ptr == config.batch_size + 1:
@@ -407,8 +411,8 @@ class CleanPuffeRL:
 
                     with env_profiler:
                         self.pool.send(actions.to(device="cpu", non_blocking=True).numpy())
-                    prof.step()
-            prof.export_chrome_trace("eval.json")
+                    #prof.step()
+            #prof.export_chrome_trace("eval.json")
 
         self.global_step += padded_steps_collected
         self.reward = torch.mean(self.rewards).float().item()
