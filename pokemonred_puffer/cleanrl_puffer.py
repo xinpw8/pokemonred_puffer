@@ -17,6 +17,7 @@ import pufferlib.vectorization
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.profiler import profile, ProfilerActivity, schedule
 
 from pokemonred_puffer.eval import make_pokemon_red_overlay
 
@@ -317,75 +318,83 @@ class CleanPuffeRL:
         with pufferlib.utils.Profiler(memory=True, pytorch_memory=True) as eval_profiler:
             ptr = step = padded_steps_collected = agent_steps_collected = 0
             infos = defaultdict(lambda: defaultdict(list))
-            while True:
-                step += 1
-                if ptr == config.batch_size + 1:
-                    break
-
-                with env_profiler:
-                    o, r, d, t, i, env_id, mask = self.pool.recv()
-
-                i = self.policy_pool.update_scores(i, "return")
-
-                with inference_profiler, torch.no_grad():
-                    o = torch.as_tensor(o).to(device=self.device, non_blocking=True)
-                    r = (
-                        torch.as_tensor(r, dtype=torch.float32)
-                        .to(device=self.device, non_blocking=True)
-                        .view(-1)
-                    )
-                    d = (
-                        torch.as_tensor(d, dtype=torch.float32)
-                        .to(device=self.device, non_blocking=True)
-                        .view(-1)
-                    )
-
-                agent_steps_collected += sum(mask)
-                padded_steps_collected += len(mask)
-                with inference_profiler, torch.no_grad():
-                    # Multiple policies will not work with new envpool
-                    next_lstm_state = self.next_lstm_state
-                    if next_lstm_state is not None:
-                        next_lstm_state = (
-                            next_lstm_state[0][:, env_id],
-                            next_lstm_state[1][:, env_id],
-                        )
-
-                    actions, logprob, value, next_lstm_state = self.policy_pool.forwards(
-                        o, next_lstm_state
-                    )
-
-                    if next_lstm_state is not None:
-                        h, c = next_lstm_state
-                        self.next_lstm_state[0][:, env_id] = h
-                        self.next_lstm_state[1][:, env_id] = c
-
-                    value = value.flatten()
-
-                # Index alive mask with policy pool idxs...
-                # TODO: Find a way to avoid having to do this
-                learner_mask = mask * self.policy_pool.mask
-
-                for idx in np.where(learner_mask)[0]:
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                schedule=schedule(wait=1, warmup=0, active=2, repeat=1),
+                with_modules=True,
+                with_stack=True,
+            ) as prof:
+                while True:
+                    step += 1
                     if ptr == config.batch_size + 1:
                         break
-                    self.obs[ptr] = o[idx]
-                    self.values[ptr] = value[idx]
-                    self.actions[ptr] = actions[idx]
-                    self.logprobs[ptr] = logprob[idx]
-                    self.sort_keys.append((env_id[idx], step))
-                    if len(d) != 0:
-                        self.rewards[ptr] = r[idx]
-                        self.dones[ptr] = d[idx]
-                    ptr += 1
 
-                for policy_name, policy_i in i.items():
-                    for agent_i in policy_i:
-                        for name, dat in unroll_nested_dict(agent_i):
-                            infos[policy_name][name].append(dat)
+                    with env_profiler:
+                        o, r, d, t, i, env_id, mask = self.pool.recv()
 
-                with env_profiler:
-                    self.pool.send(actions.to(device="cpu", non_blocking=True).numpy())
+                    i = self.policy_pool.update_scores(i, "return")
+
+                    with inference_profiler, torch.no_grad():
+                        o = torch.as_tensor(o).to(device=self.device, non_blocking=True)
+                        r = (
+                            torch.as_tensor(r, dtype=torch.float32)
+                            .to(device=self.device, non_blocking=True)
+                            .view(-1)
+                        )
+                        d = (
+                            torch.as_tensor(d, dtype=torch.float32)
+                            .to(device=self.device, non_blocking=True)
+                            .view(-1)
+                        )
+
+                    agent_steps_collected += sum(mask)
+                    padded_steps_collected += len(mask)
+                    with inference_profiler, torch.no_grad():
+                        # Multiple policies will not work with new envpool
+                        next_lstm_state = self.next_lstm_state
+                        if next_lstm_state is not None:
+                            next_lstm_state = (
+                                next_lstm_state[0][:, env_id],
+                                next_lstm_state[1][:, env_id],
+                            )
+
+                        actions, logprob, value, next_lstm_state = self.policy_pool.forwards(
+                            o, next_lstm_state
+                        )
+
+                        if next_lstm_state is not None:
+                            h, c = next_lstm_state
+                            self.next_lstm_state[0][:, env_id] = h
+                            self.next_lstm_state[1][:, env_id] = c
+
+                        value = value.flatten()
+
+                    # Index alive mask with policy pool idxs...
+                    # TODO: Find a way to avoid having to do this
+                    learner_mask = mask * self.policy_pool.mask
+
+                    for idx in np.where(learner_mask)[0]:
+                        if ptr == config.batch_size + 1:
+                            break
+                        self.obs[ptr] = o[idx]
+                        self.values[ptr] = value[idx]
+                        self.actions[ptr] = actions[idx]
+                        self.logprobs[ptr] = logprob[idx]
+                        self.sort_keys.append((env_id[idx], step))
+                        if len(d) != 0:
+                            self.rewards[ptr] = r[idx]
+                            self.dones[ptr] = d[idx]
+                        ptr += 1
+
+                    for policy_name, policy_i in i.items():
+                        for agent_i in policy_i:
+                            for name, dat in unroll_nested_dict(agent_i):
+                                infos[policy_name][name].append(dat)
+
+                    with env_profiler:
+                        self.pool.send(actions.to(device="cpu", non_blocking=True).numpy())
+                    prof.step()
+            prof.export_chrome_trace("eval.json")
 
         self.global_step += padded_steps_collected
         self.reward = torch.mean(self.rewards).float().item()
@@ -485,87 +494,100 @@ class CleanPuffeRL:
             # Optimizing the policy and value network
             train_time = time.time()
             pg_losses, entropy_losses, v_losses, clipfracs, old_kls, kls = [], [], [], [], [], []
-            for epoch in range(config.update_epochs):
-                lstm_state = None
-                for mb in range(num_minibatches):
-                    mb_obs = b_obs[mb].to(self.device, non_blocking=True)
-                    mb_actions = b_actions[mb].contiguous()
-                    mb_values = b_values[mb].reshape(-1)
-                    mb_advantages = b_advantages[mb].reshape(-1)
-                    mb_returns = b_returns[mb].reshape(-1)
+            mb_obs_buffer = torch.zeros_like(b_obs[0], pin_memory=True)
 
-                    if hasattr(self.agent, "lstm"):
-                        (
-                            _,
-                            newlogprob,
-                            entropy,
-                            newvalue,
-                            lstm_state,
-                        ) = self.agent.get_action_and_value(
-                            mb_obs, state=lstm_state, action=mb_actions
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                schedule=schedule(wait=1, warmup=0, active=2, repeat=1),
+                with_modules=True,
+                with_stack=True,
+            ) as prof:
+                for epoch in range(config.update_epochs):
+                    lstm_state = None
+                    for mb in range(num_minibatches):
+                        # mb_obs = b_obs[mb].to(self.device, non_blocking=True)
+                        mb_obs_buffer.copy_(b_obs[mb], non_blocking=True)
+                        mb_obs = mb_obs_buffer.to(self.device, non_blocking=True)
+                        mb_actions = b_actions[mb].contiguous()
+                        mb_values = b_values[mb].reshape(-1)
+                        mb_advantages = b_advantages[mb].reshape(-1)
+                        mb_returns = b_returns[mb].reshape(-1)
+
+                        if hasattr(self.agent, "lstm"):
+                            (
+                                _,
+                                newlogprob,
+                                entropy,
+                                newvalue,
+                                lstm_state,
+                            ) = self.agent.get_action_and_value(
+                                mb_obs, state=lstm_state, action=mb_actions
+                            )
+                            lstm_state = (lstm_state[0].detach(), lstm_state[1].detach())
+                        else:
+                            _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
+                                mb_obs.reshape(-1, *self.pool.single_observation_space.shape),
+                                action=mb_actions,
+                            )
+
+                        logratio = newlogprob - b_logprobs[mb].reshape(-1)
+                        ratio = logratio.exp()
+
+                        with torch.no_grad():
+                            # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                            old_approx_kl = (-logratio).mean()
+                            old_kls.append(old_approx_kl.item())
+                            approx_kl = ((ratio - 1) - logratio).mean()
+                            kls.append(approx_kl.item())
+                            clipfracs += [
+                                ((ratio - 1.0).abs() > config.clip_coef).float().mean().item()
+                            ]
+
+                        mb_advantages = mb_advantages.reshape(-1)
+                        if config.norm_adv:
+                            mb_advantages = (mb_advantages - mb_advantages.mean()) / (
+                                mb_advantages.std() + 1e-8
+                            )
+
+                        # Policy loss
+                        pg_loss1 = -mb_advantages * ratio
+                        pg_loss2 = -mb_advantages * torch.clamp(
+                            ratio, 1 - config.clip_coef, 1 + config.clip_coef
                         )
-                        lstm_state = (lstm_state[0].detach(), lstm_state[1].detach())
-                    else:
-                        _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
-                            mb_obs.reshape(-1, *self.pool.single_observation_space.shape),
-                            action=mb_actions,
-                        )
+                        pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+                        pg_losses.append(pg_loss.item())
 
-                    logratio = newlogprob - b_logprobs[mb].reshape(-1)
-                    ratio = logratio.exp()
+                        # Value loss
+                        newvalue = newvalue.view(-1)
+                        if config.clip_vloss:
+                            v_loss_unclipped = (newvalue - mb_returns) ** 2
+                            v_clipped = mb_values + torch.clamp(
+                                newvalue - mb_values,
+                                -config.vf_clip_coef,
+                                config.vf_clip_coef,
+                            )
+                            v_loss_clipped = (v_clipped - mb_returns) ** 2
+                            v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                            v_loss = 0.5 * v_loss_max.mean()
+                        else:
+                            v_loss = 0.5 * ((newvalue - mb_returns) ** 2).mean()
+                        v_losses.append(v_loss.item())
 
-                    with torch.no_grad():
-                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
-                        old_approx_kl = (-logratio).mean()
-                        old_kls.append(old_approx_kl.item())
-                        approx_kl = ((ratio - 1) - logratio).mean()
-                        kls.append(approx_kl.item())
-                        clipfracs += [
-                            ((ratio - 1.0).abs() > config.clip_coef).float().mean().item()
-                        ]
+                        entropy_loss = entropy.mean()
+                        entropy_losses.append(entropy_loss.item())
 
-                    mb_advantages = mb_advantages.reshape(-1)
-                    if config.norm_adv:
-                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
-                            mb_advantages.std() + 1e-8
-                        )
+                        loss = pg_loss - config.ent_coef * entropy_loss + v_loss * config.vf_coef
+                        self.optimizer.zero_grad()
+                        loss.backward()
+                        nn.utils.clip_grad_norm_(self.agent.parameters(), config.max_grad_norm)
+                        self.optimizer.step()
 
-                    # Policy loss
-                    pg_loss1 = -mb_advantages * ratio
-                    pg_loss2 = -mb_advantages * torch.clamp(
-                        ratio, 1 - config.clip_coef, 1 + config.clip_coef
-                    )
-                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-                    pg_losses.append(pg_loss.item())
-
-                    # Value loss
-                    newvalue = newvalue.view(-1)
-                    if config.clip_vloss:
-                        v_loss_unclipped = (newvalue - mb_returns) ** 2
-                        v_clipped = mb_values + torch.clamp(
-                            newvalue - mb_values,
-                            -config.vf_clip_coef,
-                            config.vf_clip_coef,
-                        )
-                        v_loss_clipped = (v_clipped - mb_returns) ** 2
-                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-                        v_loss = 0.5 * v_loss_max.mean()
-                    else:
-                        v_loss = 0.5 * ((newvalue - mb_returns) ** 2).mean()
-                    v_losses.append(v_loss.item())
-
-                    entropy_loss = entropy.mean()
-                    entropy_losses.append(entropy_loss.item())
-
-                    loss = pg_loss - config.ent_coef * entropy_loss + v_loss * config.vf_coef
-                    self.optimizer.zero_grad()
-                    loss.backward()
-                    nn.utils.clip_grad_norm_(self.agent.parameters(), config.max_grad_norm)
-                    self.optimizer.step()
-
-                if config.target_kl is not None:
-                    if approx_kl > config.target_kl:
-                        break
+                    if config.target_kl is not None:
+                        if approx_kl > config.target_kl:
+                            break
+                    prof.step()
+        prof.export_chrome_trace("train.json")
+        raise
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
