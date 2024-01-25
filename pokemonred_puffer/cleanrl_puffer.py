@@ -510,13 +510,13 @@ class CleanPuffeRL:
             pg_losses, entropy_losses, v_losses, clipfracs, old_kls, kls = [], [], [], [], [], []
             mb_obs_buffer = torch.zeros_like(b_obs[0], pin_memory=True)
 
-            with profile(
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                schedule=schedule(wait=1, warmup=0, active=2, repeat=1),
-                with_modules=True,
-                with_stack=True,
-            ) as prof:
-                for epoch in range(config.update_epochs):
+            for epoch in range(config.update_epochs):
+                with profile(
+                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    schedule=schedule(wait=1, warmup=0, active=2, repeat=1),
+                    with_modules=True,
+                    with_stack=True,
+                ) as prof:
                     lstm_state = None
                     for mb in range(num_minibatches):
                         # mb_obs = b_obs[mb].to(self.device, non_blocking=True)
@@ -600,8 +600,8 @@ class CleanPuffeRL:
                         if approx_kl > config.target_kl:
                             break
                     prof.step()
-            prof.export_chrome_trace("train.json")
-            raise
+                prof.export_chrome_trace("train.json")
+                raise
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
