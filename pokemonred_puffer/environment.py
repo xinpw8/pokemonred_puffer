@@ -5,7 +5,7 @@ import uuid
 from collections import deque
 from multiprocessing import Lock, shared_memory
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import mediapy as media
 import numpy as np
@@ -111,6 +111,18 @@ RESET_MAP_IDS = set(
     ]
 )
 
+UINT8_TO_TWO_BIT = {0: 0b00, 64: 0b01, 128: 0b10, 255: 0b11}
+
+
+def to_two_bit_tuple(n: int) -> Tuple[int, int, int, int]:
+    return (n >> 6 & 0b11, n >> 4 & 0b11, n >> 2 & 0b11, n & 0b11)
+
+
+# TWO_BIT_LUT = {to_two_bit_tuple(i): i for i in range(256)}
+TWO_BIT_LUT = np.zeros((4, 4, 4, 4), dtype=np.uint8)
+for i in range(256):
+    TWO_BIT_LUT[to_two_bit_tuple(i)] = i
+
 
 # TODO: Make global map usage a configuration parameter
 class RedGymEnv(Env):
@@ -182,7 +194,7 @@ class RedGymEnv(Env):
         self.event_names = event_names
 
         # self.screen_output_shape = (144, 160, 3 * self.frame_stacks)
-        self.screen_output_shape = (72, 80, 3 * self.frame_stacks)
+        self.screen_output_shape = (72, 20, 3 * self.frame_stacks)
         self.coords_pad = 12
 
         # Set these in ALL subclasses
@@ -471,13 +483,17 @@ class RedGymEnv(Env):
         """
         # game_pixels_render = np.concatenate([game_pixels_render, visited_mask, cut_mask], axis=-1)
         game_pixels_render = np.concatenate([game_pixels_render, visited_mask], axis=-1)
+        two_bit_render = np.array([
+            TWO_BIT_LUT[tuple(s)]
+            for s in np.ravel(np.hsplit(game_pixels_render, 4))
+        ]).reshape(self.screen_output_shape)
 
         # if reduce_res:
         # game_pixels_render = (
         #     downscale_local_mean(game_pixels_render, (2, 2, 1))
         # ).astype(np.uint8)
         #     game_pixels_render = game_pixels_render[::2, ::2, :]
-        return game_pixels_render
+        return two_bit_render
 
     def _get_obs(self):
         screen = self.render()

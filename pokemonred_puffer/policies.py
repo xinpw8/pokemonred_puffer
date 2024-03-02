@@ -15,6 +15,13 @@ def one_hot(tensor, num_classes):
     )
 
 
+def packed_to_two_bit(n: int) -> torch.Tensor:
+    return (torch.tensor([n >> 6, n >> 4, n >> 2, n]) & 0b11) * 64
+
+
+TWO_BIT_TO_UINT8 = torch.tensor([packed_to_two_bit(i) for i in range(256)], dtype=torch.int8)
+
+
 class MultiConvolutionPolicy(pufferlib.models.Policy):
     def __init__(
         self,
@@ -72,6 +79,8 @@ class MultiConvolutionPolicy(pufferlib.models.Policy):
         )
         self.value_fn = pufferlib.pytorch.layer_init(nn.Linear(output_size, 1), std=1)
 
+        self.register_buffer("two_bit_to_uint8", TWO_BIT_TO_UINT8)
+
     def encode_observations(self, observations):
         observations = unpack_batched_obs(observations, self.unflatten_context)
 
@@ -85,7 +94,16 @@ class MultiConvolutionPolicy(pufferlib.models.Policy):
                 observation = observation.permute(0, 3, 1, 2)
             if self.downsample > 1:
                 observation = observation[:, :, :: self.downsample, :: self.downsample]
-            output.append(network(observation.float() / 255.0))
+            # convert observation back to 8 bit
+            normalized_obs = (
+                torch.index_select(
+                    torch.ravel(observation).repeat_interleave(4), 0, self.two_bit_to_uint8
+                )
+                .reshape((observation.shape[0], observation.shape[1] * 4, observation.shape[2]))
+                .float()
+                / 256.0
+            )
+            output.append(network(normalized_obs))
         return self.encode_linear(
             torch.cat(
                 output + [one_hot(observations["direction"].long(), 4).float().squeeze(1)],
