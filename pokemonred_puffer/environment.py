@@ -21,6 +21,8 @@ EVENTS_FLAGS_LENGTH = 320
 MUSEUM_TICKET = (0xD754, 0)
 PARTY_SIZE = 0xD163
 PARTY_LEVEL_ADDRS = [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]
+BOX_STRUCT_LENGTH = 29
+
 
 CUT_SEQ = [
     ((0x3D, 1, 1, 0, 4, 1), (0x3D, 1, 1, 0, 1, 1)),
@@ -441,6 +443,35 @@ class RedGymEnv(Env):
             ],
             axis=-1,
         )
+        # We'll store in a format that's intended to be one-hotted on device
+        # the party vector will be: 
+        # remember moves are 1-indexed
+        # this should map to what is accessible in the stats window and nothing more
+        # [species_id, HP, status, type 1, type 2,
+        #  max hp, attack, defense, speed, special, move 0, 
+        #  move 1, move 2, move 3 ]
+        party = np.zeros((6, 14), dtype=np.uint16)
+        party_size = self.read_m(PARTY_SIZE)
+        for i, start_addr in enumerate([0xD16B, 0xD197, 0xD1C3, 0xD1EF, 0xD21B, 0xD247][:party_size]):
+            # Species ID
+            party[i][0] = self.read_m(start_addr)
+            # Current HP
+            party[i][1] = self.read_m(start_addr+1) << 8 + self.read_m(start_addr+2)
+            # Status
+            party[i][2] = self.read_m(start_addr+4) 
+            # Type 1
+            party[i][3] = self.read_m(start_addr+5) 
+            # Type 2
+            party[i][4] = self.read_m(start_addr+6) 
+            # Move 1
+            party[i][5] = self.read_m(start_addr+7) 
+            # Move 2
+            party[i][6] = self.read_m(start_addr+8) 
+            # Move 3
+            party[i][7] = self.read_m(start_addr+9) 
+            # Move 4
+            party[i][8] = self.read_m(start_addr+10) 
+
 
         self.update_recent_screens(screen)
         return screen
