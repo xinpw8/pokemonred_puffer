@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from enum import Enum
 import random
 from collections import deque
 from multiprocessing import Lock, shared_memory
@@ -136,6 +137,39 @@ RELEASE_ACTIONS = [
 ACTION_SPACE = spaces.Discrete(len(VALID_ACTIONS))
 
 
+class PARTY_STRUCT_OFFSETS(Enum):
+    POKEMON = 0
+    CURRENT_HP = 1
+    FAKE_LEVEL = 3
+    STATUS = 4
+    TYPE_1 = 5
+    TYPE_2 = 6
+    CATCH_RATE = 7
+    MOVE_1 = 8
+    MOVE_2 = 9
+    MOVE_3 = 10
+    MOVE_4 = 11
+    TRAINER_ID = 12
+    EXPERIENCE = 14
+    HP_EV = 16
+    ATTACK_EV = 18
+    DEFENSE_EV = 20
+    SPEED_EV = 22
+    SPECIAL_EV = 24
+    ATTACK_DEFENSE_IV = 26
+    SPEED_SPECIAL_IV = 27
+    PP_MOVE_1 = 28
+    PP_MOVE_2 = 29
+    PP_MOVE_3 = 30
+    PP_MOVE_4 = 31
+    LEVEL = 32
+    MAX_HP = 33
+    ATTACK = 35
+    DEFENSE = 37
+    SPEED = 39
+    SPECIAL = 41
+
+
 # TODO: Make global map usage a configuration parameter
 class RedGymEnv(Env):
     env_id = shared_memory.SharedMemory(create=True, size=4)
@@ -199,8 +233,25 @@ class RedGymEnv(Env):
                 "reset_map_id": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
                 "battle_type": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
                 "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+                "party_size": spaces.Box(low=0, high=6, shape=(1,), dtype=np.uint),
+                "species_ids": spaces.Box(low=0, high=152, shape=(6,), dtype=np.uint8),
+                "current_hps": spaces.Box(low=0, high=999, shape=(6,), dtype=np.uint16),
+                "statuses": spaces.Box(low=0, high=5, shape=(6,), dtype=np.uint8),
+                "type_1s": spaces.Box(low=0, high=17, shape=(6,), dtype=np.uint8),
+                "type_2s": spaces.Box(low=0, high=17, shape=(6,), dtype=np.uint8),
+                "move_1s": spaces.Box(low=0, high=165, shape=(6,), dtype=np.uint8),
+                "move_2s": spaces.Box(low=0, high=165, shape=(6,), dtype=np.uint8),
+                "move_3s": spaces.Box(low=0, high=165, shape=(6,), dtype=np.uint8),
+                "move_4s": spaces.Box(low=0, high=165, shape=(6,), dtype=np.uint8),
+                "levels": spaces.Box(low=0, high=100, shape=(6,), dtype=np.uint8),
+                "max_hps": spaces.Box(low=0, high=999, shape=(6,), dtype=np.uint16),
+                "attacks": spaces.Box(low=0, high=999, shape=(6,), dtype=np.uint16),
+                "defenses": spaces.Box(low=0, high=999, shape=(6,), dtype=np.uint16),
+                "speeds": spaces.Box(low=0, high=999, shape=(6,), dtype=np.uint16),
+                "specials": spaces.Box(low=0, high=999, shape=(6,), dtype=np.uint16),
             }
         )
+        self.observation_space["direction"].boun
 
         self.pyboy = PyBoy(
             env_config.gb_path,
@@ -443,46 +494,105 @@ class RedGymEnv(Env):
             ],
             axis=-1,
         )
-        # We'll store in a format that's intended to be one-hotted on device
-        # the party vector will be: 
-        # remember moves are 1-indexed
-        # this should map to what is accessible in the stats window and nothing more
-        # [species_id, HP, status, type 1, type 2,
-        #  max hp, attack, defense, speed, special, move 0, 
-        #  move 1, move 2, move 3 ]
-        party = np.zeros((6, 14), dtype=np.uint16)
-        party_size = self.read_m(PARTY_SIZE)
-        for i, start_addr in enumerate([0xD16B, 0xD197, 0xD1C3, 0xD1EF, 0xD21B, 0xD247][:party_size]):
-            # Species ID
-            party[i][0] = self.read_m(start_addr)
-            # Current HP
-            party[i][1] = self.read_m(start_addr+1) << 8 + self.read_m(start_addr+2)
-            # Status
-            party[i][2] = self.read_m(start_addr+4) 
-            # Type 1
-            party[i][3] = self.read_m(start_addr+5) 
-            # Type 2
-            party[i][4] = self.read_m(start_addr+6) 
-            # Move 1
-            party[i][5] = self.read_m(start_addr+7) 
-            # Move 2
-            party[i][6] = self.read_m(start_addr+8) 
-            # Move 3
-            party[i][7] = self.read_m(start_addr+9) 
-            # Move 4
-            party[i][8] = self.read_m(start_addr+10) 
-
-
         self.update_recent_screens(screen)
         return screen
 
     def _get_obs(self):
+        # We'll store in a format that's intended to be one-hotted on device
+        # the party vector will be:
+        # remember moves are 1-indexed
+        # this should map to what is accessible in the stats window
+        # [species_id, HP, status, type 1, type 2,
+        #  max hp, attack, defense, speed, special, move 0,
+        #  move 1, move 2, move 3 ]
+        # If we want to split out hp then this can be mostly uint8
+        # TODO: Find a nicer way to make this without as much hardcoding
+        # If this were something like C, I'd make a struct that I'd memcpy into
+        species_ids = np.zeros(6, dtype=np.uint8)
+        current_hps = np.zeros(6, dtype=np.uint16)
+        statuses = np.zeros(6, dtype=np.uint8)
+        type_1s = np.zeros(6, dtype=np.uint8)
+        type_2s = np.zeros(6, dtype=np.uint8)
+        move_1s = np.zeros(6, dtype=np.uint8)
+        move_2s = np.zeros(6, dtype=np.uint8)
+        move_3s = np.zeros(6, dtype=np.uint8)
+        move_4s = np.zeros(6, dtype=np.uint8)
+        levels = np.zeros(6, dtype=np.uint8)
+        max_hps = np.zeros(6, dtype=np.uint16)
+        attacks = np.zeros(6, dtype=np.uint16)
+        defenses = np.zeros(6, dtype=np.uint16)
+        speeds = np.zeros(6, dtype=np.uint16)
+        specials = np.zeros(6, dtype=np.uint16)
+        party_size = self.read_m(PARTY_SIZE)
+        for i, start_addr in enumerate(
+            [0xD16B, 0xD197, 0xD1C3, 0xD1EF, 0xD21B, 0xD247][:party_size]
+        ):
+            # Species ID
+            species_ids[i] = self.read_m(start_addr + PARTY_STRUCT_OFFSETS.POKEMON)
+            # Current HP
+            current_hps[i] = self.read_short(start_addr + PARTY_STRUCT_OFFSETS.CURRENT_HP)
+            # Status
+            status = self.read_m(start_addr + PARTY_STRUCT_OFFSETS.STATUS)
+            if status == 0:
+                statuses[i] = 0
+            elif status <= 0b0000_0011:
+                statuses[i] = 1
+            elif status == 0b0000_0100:
+                statuses[i] = 2
+            elif status == 0b0000_1000:
+                statuses[i] = 3
+            elif status == 0b0001_0000:
+                statuses[i] = 4
+            elif status == 0b0010_0000:
+                statuses[i] = 5
+            else:  # just in case
+                statuses[i] = 0
+            # Type 1
+            type_1s[i] = self.read_m(start_addr + PARTY_STRUCT_OFFSETS.TYPE_1)
+            # Type 2
+            type_2s[i] = self.read_m(start_addr + PARTY_STRUCT_OFFSETS.TYPE_2)
+            # Move 1
+            move_1s[i] = self.read_m(start_addr + PARTY_STRUCT_OFFSETS.MOVE_1)
+            # Move 2
+            move_2s[i] = self.read_m(start_addr + PARTY_STRUCT_OFFSETS.MOVE_2)
+            # Move 3
+            move_3s[i] = self.read_m(start_addr + PARTY_STRUCT_OFFSETS.MOVE_3)
+            # Move 4
+            move_4s[i] = self.read_m(start_addr + PARTY_STRUCT_OFFSETS.MOVE_4)
+            # Level
+            levels[i] = self.read_m(start_addr + PARTY_STRUCT_OFFSETS.LEVEL)
+            # Max HP
+            max_hps[i] = self.read_short(start_addr + PARTY_STRUCT_OFFSETS.MAX_HP)
+            # Attack
+            attacks[i] = self.read_short(start_addr + PARTY_STRUCT_OFFSETS.ATTACK)
+            # Defense
+            defenses[i] = self.read_short(start_addr + PARTY_STRUCT_OFFSETS.DEFENSE)
+            # Speed
+            speeds[i] = self.read_short(start_addr + PARTY_STRUCT_OFFSETS.SPEED)
+            # Special
+            specials[i] = self.read_short(start_addr + PARTY_STRUCT_OFFSETS.SPECIAL)
         return {
             "screen": self._get_screen_obs(),
             "direction": np.array(self.pyboy.get_memory_value(0xC109) // 4, dtype=np.uint8),
             "reset_map_id": np.array(self.pyboy.get_memory_value(0xD719), dtype=np.uint8),
             "battle_type": np.array(self.pyboy.get_memory_value(0xD057) + 1, dtype=np.uint8),
             "cut_in_party": np.array(self.check_if_party_has_cut(), dtype=np.uint8),
+            "party_size": np.array(party_size, dtype=np.uint8),
+            "species_ids": species_ids,
+            "current_hps": current_hps,
+            "statuses": statuses,
+            "type_1s": type_1s,
+            "type_2s": type_2s,
+            "move_1s": move_1s,
+            "move_2s": move_2s,
+            "move_3s": move_3s,
+            "move_4s": move_4s,
+            "levels": levels,
+            "max_hps": max_hps,
+            "attacks": attacks,
+            "defenses": defenses,
+            "speeds": speeds,
+            "specials": specials,
         }
 
     def set_perfect_iv_dvs(self):
@@ -869,6 +979,9 @@ class RedGymEnv(Env):
 
         self.total_reward = new_total
         return new_step
+
+    def read_short(self, addr):
+        return (self.pyboy.get_memory_value(addr) << 8) + self.pyboy.get_memory_value(addr)
 
     def read_m(self, addr):
         return self.pyboy.get_memory_value(addr)

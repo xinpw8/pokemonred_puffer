@@ -92,6 +92,7 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
             if self.downsample > 1:
                 observation = observation[:, :, :: self.downsample, :: self.downsample]
             output.append(network(observation.float() / 255.0).squeeze(1))
+        # TODO: Is there a way to get the box's upper bound for the one hot encoding?
         return self.encode_linear(
             torch.cat(
                 (
@@ -100,6 +101,23 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
                     one_hot(observations["reset_map_id"].long(), 255).float().squeeze(1),
                     one_hot(observations["battle_type"].long(), 4).float().squeeze(1),
                     observations["cut_in_party"].float(),
+                    # TODO: Fourier encode status per party?
+                    observations["party_size"].float(),
+                    one_hot(observations["species_ids"].long(), 152).float().squeeze(1),
+                    observations["current_hps"].float(),
+                    one_hot(observations["statuses"].long(), 5).float().squeeze(1),
+                    one_hot(observations["type_1s"].long(), 17).float().squeeze(1),
+                    one_hot(observations["type_2s"].long(), 17).float().squeeze(1),
+                    one_hot(observations["move_1s"].long(), 165).float().squeeze(1),
+                    one_hot(observations["move_2s"].long(), 165).float().squeeze(1),
+                    one_hot(observations["move_3s"].long(), 165).float().squeeze(1),
+                    one_hot(observations["move_4s"].long(), 165).float().squeeze(1),
+                    observations["levels"].float(),
+                    observations["max_hps"].float(),
+                    observations["attacks"].float(),
+                    observations["defenses"].float(),
+                    observations["speeds"].float(),
+                    observations["specials"].float(),
                 ),
                 dim=-1,
             )
