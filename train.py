@@ -1,26 +1,81 @@
 import argparse
 import importlib
+import pathlib
 import sys
 import time
-from typing import Callable
+from types import ModuleType
+from typing import Any, Callable
 
+import gymnasium as gym
 import torch
+import wandb
+import yaml
+
 import pufferlib
 import pufferlib.utils
-import gymnasium as gym
+from pokemonred_puffer.cleanrl_puffer import CleanPuffeRL, rollout
+from pokemonred_puffer.environment import RedGymEnv
 
-from pokemonred_puffer.cleanrl_puffer import rollout
-from pokemonred_puffer.train import (
-    load_from_config,
-    make_env_creator,
-    update_args,
-    init_wandb,
-    train,
-)
 
-# These are used as the defaults in argparse
-CUSTOM_REWARD_ENV = "environment.CustomRewardEnv"  # see environment.py
-CUSTOM_POLICY = "policy_multiconv.MultiConvolutionalPolicy"  # see policy.py
+# TODO: Replace with Pydantic or Spock parser
+def load_from_config(
+    yaml_path: str | pathlib.Path,
+    wrappers: str,
+    policy: str,
+    reward: str,
+    debug: bool = False,
+):
+    with open(yaml_path) as f:
+        config = yaml.safe_load(f)
+
+    default_keys = ["env", "train", "policies", "rewards", "wrappers", "wandb"]
+    defaults = {key: config.get(key, {}) for key in default_keys}
+
+    # Package and subpackage (environment) configs
+    debug_config = config.get("debug", {}) if debug else {}
+    # This is overly complicated. Clean it up. Or remove configs entirely
+    # if we're gonna start creating an ersatz programming language.
+    wrappers_config = {}
+    for wrapper in config["wrappers"][wrappers]:
+        for k, v in wrapper.items():
+            wrappers_config[k] = v
+    reward_config = config["rewards"][reward]
+    policy_config = config["policies"][policy]
+
+    combined_config = {}
+    for key in default_keys:
+        policy_subconfig = policy_config.get(key, {})
+        reward_subconfig = reward_config.get(key, {})
+        wrappers_subconfig = wrappers_config.get(key, {})
+        debug_subconfig = debug_config.get(key, {})
+
+        # Order of precedence: debug > wrappers > rewards > policy > defaults
+        combined_config[key] = (
+            defaults[key]
+            | policy_subconfig
+            | reward_subconfig
+            | wrappers_subconfig
+            | debug_subconfig
+        )
+    return pufferlib.namespace(**combined_config)
+
+def make_env_creator(
+    wrapper_classes: list[tuple[str, ModuleType]],
+    reward_class: RedGymEnv,
+) -> Callable[[pufferlib.namespace, pufferlib.namespace], pufferlib.emulation.GymnasiumPufferEnv]:
+    def env_creator(
+        env_config: pufferlib.namespace,
+        wrappers_config: list[dict[str, Any]],
+        reward_config: pufferlib.namespace,
+    ) -> pufferlib.emulation.GymnasiumPufferEnv:
+        env = reward_class(env_config, reward_config)
+        for cfg, (_, wrapper_class) in zip(wrappers_config, wrapper_classes):
+            env = wrapper_class(env, pufferlib.namespace(**[x for x in cfg.values()][0]))
+        return pufferlib.emulation.GymnasiumPufferEnv(
+            env=env, postprocessor_cls=pufferlib.emulation.BasicPostprocessor
+        )
+
+    return env_creator
 
 
 # Returns env_creator, agent_creator
@@ -29,12 +84,13 @@ def setup_agent(
     reward_name: str,
     policy_name: str,
 ) -> Callable[[pufferlib.namespace, pufferlib.namespace], pufferlib.emulation.GymnasiumPufferEnv]:
+    # TODO: Make this less dependent on the name of this repo and its file structure
     wrapper_classes = [
         (
             k,
             getattr(
-                importlib.import_module(f"pokemonred_puffer.wrappers.{k.split('.')[0]}"),
-                k.split(".")[1],
+                importlib.import_module(f"pokemonred_puffer.wrappers.{'.'.join(k.split('.')[:-1])}"),
+                k.split(".")[-1],
             ),
         )
         for wrapper_dicts in wrappers
@@ -42,13 +98,13 @@ def setup_agent(
     ]
     reward_module, reward_class_name = reward_name.split(".")
     reward_class = getattr(
-        importlib.import_module(reward_module), reward_class_name
+        importlib.import_module(f"pokemonred_puffer.wrappers.rewards.{reward_module}"), reward_class_name
     )
     # NOTE: This assumes reward_module has RewardWrapper(RedGymEnv) class
     env_creator = make_env_creator(wrapper_classes, reward_class)
 
     policy_module_name, policy_class_name = policy_name.split(".")
-    policy_module = importlib.import_module(policy_module_name)
+    policy_module = importlib.import_module(f"pokemonred_puffer.wrappers.policy.{policy_module_name}")
     policy_class = getattr(policy_module, policy_class_name)
 
     def agent_creator(env: gym.Env, args: pufferlib.namespace):
@@ -76,19 +132,83 @@ def setup_agent(
     return env_creator, agent_creator
 
 
+def update_args(args: argparse.Namespace):
+    args = pufferlib.namespace(**args)
+
+    args.track = args.track
+    args.env.gb_path = args.rom_path
+
+    if args.vectorization == "serial" or args.debug:
+        args.vectorization = pufferlib.vectorization.Serial
+    elif args.vectorization == "multiprocessing":
+        args.vectorization = pufferlib.vectorization.Multiprocessing
+
+    return args
+
+
+def init_wandb(args, resume=True):
+    assert args.wandb.project is not None, "Please set the wandb project in config.yaml"
+    assert args.wandb.entity is not None, "Please set the wandb entity in config.yaml"
+    wandb_kwargs = {
+        "id": args.exp_name or wandb.util.generate_id(),
+        "project": args.wandb.project,
+        "entity": args.wandb.entity,
+        "group": args.wandb.group,
+        "config": {
+            "cleanrl": args.train,
+            "env": args.env,
+            "reward_module": args.reward_name,
+            "policy_module": args.policy_name,
+            "reward": args.rewards[args.reward_name],
+            "policy": args.policies[args.policy_name],
+            "wrappers": args.wrappers[args.wrappers_name],
+            "recurrent": "recurrent" in args.policies[args.policy_name],
+        },
+        "name": args.exp_name,
+        "monitor_gym": True,
+        "save_code": True,
+        "resume": resume,
+    }
+    return wandb.init(**wandb_kwargs)
+
+
+def train(
+    args: pufferlib.namespace,
+    env_creator: Callable,
+    agent_creator: Callable[[gym.Env, pufferlib.namespace], pufferlib.models.Policy],
+):
+    with CleanPuffeRL(
+        config=args.train,
+        agent_creator=agent_creator,
+        agent_kwargs={"args": args},
+        env_creator=env_creator,
+        env_creator_kwargs={
+            "env_config": args.env,
+            "wrappers_config": args.wrappers[args.wrappers_name],
+            "reward_config": args.rewards[args.reward_name]["reward"],
+        },
+        vectorization=args.vectorization,
+        exp_name=args.exp_name,
+        track=args.track,
+    ) as trainer:
+        while not trainer.done_training():
+            trainer.evaluate()
+            trainer.train()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Parse environment argument", add_help=False)
     parser.add_argument("--yaml", default="config.yaml", help="Configuration file to use")
     parser.add_argument(
         "-p",
         "--policy-name",
-        default=CUSTOM_POLICY,
-        help="Policy module to use in policies",
+        default="policies.Policy",
+        help="Policy module to use in policies.",
     )
     parser.add_argument(
         "-r",
         "--reward-name",
-        default=CUSTOM_REWARD_ENV,
+        default="teach_cut_v1.RewardWrapper",
         help="Reward module to use in rewards",
     )
     parser.add_argument(
