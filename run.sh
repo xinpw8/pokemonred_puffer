@@ -1,0 +1,1 @@
+python -m pokemonred_puffer.train --mode train --yaml config.yaml --track

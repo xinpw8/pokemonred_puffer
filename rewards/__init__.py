@@ -1,1 +1,0 @@
-from pokemonred_puffer.rewards.teach_cut_v1 import RewardWrapper

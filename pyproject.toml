@@ -1,5 +1,5 @@
 [project]
-name = "poke-trainer"
+name = "pokemonred-puffer"
 version = "0.0.1"
 description = "Play Pokemon Red...with PufferLib!."
 keywords = []
@@ -11,14 +11,15 @@ classifiers = [
 	"Programming Language :: Python :: 3.10",
 	"Programming Language :: Python :: Implementation :: CPython",
 ]
-
-# versions are pinned by pufferlib
 dependencies = [
-    "gymnasium",
+    "einops",
+    "opencv-python",
     "numpy",
-    "pokemonred_puffer@git+https://github.com/kywch/pokemonred_puffer",
-    "pufferlib",
-    "torch",
+    "pufferlib[cleanrl,pokemon_red]",
+    "torch>=2.1",
+    "torchvision",
+    "wandb",
+    "websockets",
 ]
 
 [tool.setuptools.packages.find]
