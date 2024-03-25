@@ -5,7 +5,7 @@ import functools
 import pufferlib.emulation
 
 from pokemonred_puffer.environment import RedGymEnv
-from pokemonred_puffer.wrappers.visualization.stream_wrapper import StreamWrapper
+from pokegym_refactor.pokemonred_puffer.wrappers.stream_wrapper import StreamWrapper
 
 # # Ensure the directory of the correct environment.py is in sys.path
 # correct_path = '/bet_adsorption_xinpw8/back2bulba/pokegym/pokegym'
