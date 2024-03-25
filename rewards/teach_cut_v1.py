@@ -3,7 +3,7 @@ import pufferlib
 import sys
 sys.path.insert(0, '/puffertank/pokegym_refactor/pokemonred_puffer')
 
-from ...environment import RedGymEnv
+from ..environment import RedGymEnv
 import ram_map
 
 EVENT_FLAGS_START_ADDR = 0xD747

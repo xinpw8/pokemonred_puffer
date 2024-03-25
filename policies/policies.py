@@ -1,20 +1,11 @@
-import torch
-from torch import nn
-
 import pufferlib.models
+import torch
 from pufferlib.emulation import unpack_batched_obs
+from torch import nn
 
 unpack_batched_obs = torch.compiler.disable(unpack_batched_obs)
 
 # Because torch.nn.functional.one_hot cannot be traced by torch as of 2.2.0
-
-# screen (1920) + x, y coords (2) + map idx one hot (256)
-#  + map progress one hot (32, check essential_map_locations)
-#  + badge one hot (9) + party size one hot (8)
-#  + seen pokemon (1), which is a great proxy for game progression
-#  + 2 flags (boost_menu_reward, cut_in_party)
-FLAT_DIM = 1920 + 256 + 32 + 9 + 8 + 1 + 2
-
 
 def one_hot(tensor, num_classes):
     index = torch.arange(0, num_classes, device=tensor.device)
@@ -22,19 +13,13 @@ def one_hot(tensor, num_classes):
         torch.int64
     )
 
-
-class RecurrentMultiConvolutionalWrapper(pufferlib.models.RecurrentWrapper):
-    def __init__(self, env, policy, input_size=512, hidden_size=512, num_layers=1):
-        super().__init__(env, policy, input_size, hidden_size, num_layers)
-
-
-class MultiConvolutionalPolicy(pufferlib.models.Policy):
+class MultiConvolutionPolicy(pufferlib.models.Policy):
     def __init__(
         self,
         env,
         screen_framestack: int = 3,
         global_map_frame_stack: int = 1,
-        screen_flat_size: int = FLAT_DIM,  # 14341,
+        screen_flat_size: int = 14336,
         global_map_flat_size: int = 1600,
         input_size: int = 512,
         framestack: int = 1,
@@ -73,7 +58,7 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
         self.encode_linear = nn.Sequential(
             pufferlib.pytorch.layer_init(
                 nn.Linear(
-                    screen_flat_size,
+                    screen_flat_size + 4,
                     hidden_size,
                 ),
             ),
@@ -98,22 +83,10 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
                 observation = observation.permute(0, 3, 1, 2)
             if self.downsample > 1:
                 observation = observation[:, :, :: self.downsample, :: self.downsample]
-            output.append(network(observation.float() / 255.0).squeeze(1))
+            output.append(network(observation.float() / 255.0))
         return self.encode_linear(
             torch.cat(
-                (
-                    *output,
-                    # observations["x"].float(),
-                    # observations["y"].float(),
-                    one_hot(observations["curr_map_idx"].long(), 256).float().squeeze(1),
-                    one_hot(observations["map_progress"].long(), 32).float().squeeze(1),
-                    one_hot(observations["num_badge"].long(), 9).float().squeeze(1),
-                    one_hot(observations["party_size"].long(), 8).float().squeeze(1),
-                    observations["seen_pokemon"].float() / 128.0,  # max: 152 
-                    #one_hot(observations["direction"].long(), 4).float().squeeze(1),
-                    observations["boost_menu_reward"].float(),
-                    observations["cut_in_party"].float(),
-                ),
+                output + [one_hot(observations["direction"].long(), 4).float().squeeze(1)],
                 dim=-1,
             )
         ), None
@@ -122,3 +95,24 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
         action = self.actor(flat_hidden)
         value = self.value_fn(flat_hidden)
         return action, value
+
+class RecurrentWrapper(pufferlib.models.RecurrentWrapper):
+    def __init__(self, env, policy, input_size=512, hidden_size=512, num_layers=1):
+        super().__init__(env, policy, input_size, hidden_size, num_layers)
+
+# NOTE: see RedGymEnv.screen_output_shape = (72, 80, 3 * self.frame_stacks)
+class Policy(pufferlib.models.Convolutional):
+    def __init__(
+        self, env,
+        input_size=512, hidden_size=512, output_size=512, framestack=4, flat_size=1920
+    ):
+        super().__init__(
+            env=env,
+            input_size=input_size,
+            hidden_size=hidden_size,
+            output_size=output_size,
+            framestack=framestack,
+            flat_size=flat_size,
+            channels_last=True,
+        )
+        

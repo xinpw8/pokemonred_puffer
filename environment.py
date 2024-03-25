@@ -29,6 +29,8 @@ from io import BytesIO
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True
 
+PIXEL_VALUES = np.array([0, 85, 153, 255], dtype=np.uint8)
+GLOBAL_MAP_SHAPE = (444, 436)
 EVENT_FLAGS_START = 0xD747
 EVENTS_FLAGS_LENGTH = 320
 MUSEUM_TICKET = (0xD754, 0)
@@ -44,6 +46,32 @@ STATE_PATH = __file__.rstrip("environment.py") + "current_state/"
 CUT_GRASS_SEQ = deque([(0x52, 255, 1, 0, 1, 1), (0x52, 255, 1, 0, 1, 1), (0x52, 1, 1, 0, 1, 1)])
 CUT_FAIL_SEQ = deque([(-1, 255, 0, 0, 4, 1), (-1, 255, 0, 0, 1, 1), (-1, 255, 0, 0, 1, 1)])
 CUT_SEQ = [((0x3D, 1, 1, 0, 4, 1), (0x3D, 1, 1, 0, 1, 1)), ((0x50, 1, 1, 0, 4, 1), (0x50, 1, 1, 0, 1, 1)),]
+
+# List of tree positions in pixel coordinates
+TREE_POSITIONS_PIXELS = [
+    (3184, 3584), # celadon gym 4
+    (3375, 3391), # celadon right
+    (2528, 3616), # gym 4 middle
+    (2480, 3568), # gym 4 left
+    (2560, 3584), # gym 4 right
+    (1104, 2944), # below pewter 1
+    (1264, 3136), # below pewter 2
+    (1216, 3616), # below pewter 3
+    (1216, 3744), # below pewter 4
+    (1216, 3872), # below pewter 5
+    (1088, 4000), # old man viridian city
+    (992, 4288),  # viridian city left
+    (3984, 4512), # to vermilion city gym
+    (4640, 1392), # near bill's house
+    (4464, 2176), # cerulean to rock tunnel
+    (5488, 2336), # outside rock tunnel 1
+    (5488, 2368), # outside rock tunnel 2
+    (5488, 2400), # outside rock tunnel 3
+    (5488, 2432)  # outside rock tunnel 4
+]
+
+# Convert pixel coordinates to grid coordinates
+TREE_POSITIONS_GRID = [(x//16, y//16) for x, y in TREE_POSITIONS_PIXELS]
 
 # def get_random_state():
 #     state_files = [f for f in os.listdir(STATE_PATH) if f.endswith(".state")]
@@ -117,6 +145,7 @@ class Base:
         # Set this in SOME subclasses
         self.metadata = {"render.modes": []}
         self.reward_range = (0, 15000)
+        self.counts_map = np.zeros((444, 436))
 
         self.valid_actions = [
             WindowEvent.PRESS_ARROW_DOWN,
@@ -148,7 +177,7 @@ class Base:
         with open(os.path.join(os.path.dirname(__file__), "events.json")) as f:
             event_names = json.load(f)
         self.event_names = event_names
-        self.screen_output_shape = (144, 160, 4)
+        self.screen_output_shape = (72, 80, 1)
 
         self.pyboy = PyBoy(
             'pokemonred_puffer/pokemon_red.gb', # config["gb_path"],
@@ -169,14 +198,26 @@ class Base:
             self.obs_size += (4,)
         else:
             self.obs_size += (3,)
-        self.observation_space = spaces.Box(
-            low=0, high=255, dtype=np.uint8, shape=self.obs_size
-        )
-        self.action_space = spaces.Discrete(len(self.valid_actions))
+        # self.observation_space = spaces.Box(
+        #     low=0, high=255, dtype=np.uint8, shape=self.obs_size
+        # )
+        # self.action_space = spaces.Discrete(len(self.valid_actions))
 
+        
+        self.observation_space = spaces.Dict({
+            "screen": spaces.Box(low=0, high=255, shape=(72, 80, 4), dtype=np.uint8),
+            "global_map": spaces.Box(low=0, high=255, shape=(72, 80, 3), dtype=np.uint8)
+        })
+        
+        # print(f'self.observation_space size and shape: \n screen: size= {np.size(self.observation_space["screen"])}, shape= {np.shape(self.observation_space["screen"])}')
+        # print(f'self.observation_space size and shape: \n global_map: size= {np.size(self.observation_space["global_map"])}, shape= {np.shape(self.observation_space["global_map"])}')
+        self.action_space = spaces.Discrete(len(self.valid_actions))
         # if not config["headless"]:
-        #     self.pyboy.set_emulation_speed(6)
-            
+        #     self.pyboy.set_emulation_speed(6) 
+
+    def get_game_coords(self):
+        return (ram_map.mem_val(self.pyboy, 0xD362), ram_map.mem_val(self.pyboy, 0xD361), ram_map.mem_val(self.pyboy, 0xD35E))
+    
     def start_video(self):
         if self.full_frame_writer is not None:
             self.full_frame_writer.close()
@@ -214,7 +255,6 @@ class Base:
     
     def run_action_on_emulator(self, action):
         self.action_hist[action] += 1
-
         # press button then release after some steps
         self.pyboy.send_input(self.valid_actions[action])
         # disable rendering when we don't need it
@@ -225,14 +265,12 @@ class Base:
             if i == 8 and action < len(self.release_actions):
                 # release button
                 self.pyboy.send_input(self.release_actions[action])
-
             if self.save_video and not self.fast_video:
                 self.add_video_frame()
             if i == self.act_freq - 1:
                 # rendering must be enabled on the tick before frame is needed
                 self.pyboy._rendering(True)
             self.pyboy.tick()
-            
         if self.save_video and self.fast_video:
             self.add_video_frame()
     
@@ -268,7 +306,7 @@ class Base:
     def reset(self, seed=None, options=None):
         """Resets the game. Seeding is NOT supported"""
         return self.screen.screen_ndarray(), {}
-
+    
     def get_fixed_window(self, arr, y, x, window_size):
         height, width, _ = arr.shape
         h_w, w_w = window_size[0], window_size[1]
@@ -293,6 +331,13 @@ class Base:
         )
 
     def render(self):
+        game_pixels_render = self.screen.screen_ndarray()[::2, ::2]
+        game_pixels_render = np.expand_dims(game_pixels_render, axis=-1)
+        global_map = np.expand_dims(
+            255 * resize(self.counts_map, game_pixels_render.shape, anti_aliasing=False),
+            axis=-1,
+        ).astype(np.uint8)
+        
         if self.use_screen_memory:
             r, c, map_n = ram_map.position(self.pyboy)
             # Update tile map
@@ -302,15 +347,71 @@ class Base:
 
             # Downsamples the screen and retrieves a fixed window from mmap,
             # then concatenates along the 3rd-dimensional axis (image channel)
-            return np.concatenate(
+            screen_render = np.concatenate(
                 (
                     self.screen.screen_ndarray()[::2, ::2],
-                    self.get_fixed_window(mmap, r, c, self.observation_space.shape),
+                    self.get_fixed_window(mmap, r, c, self.observation_space['screen'].shape),
                 ),
                 axis=2,
             )
         else:
-            return self.screen.screen_ndarray()[::2, ::2]
+            screen_render = self.screen.screen_ndarray()[::2, ::2]
+        
+
+        
+        return {
+            "screen": screen_render,
+            "global_map": global_map,
+        }
+
+    def _get_obs(self):
+        rendered = self.render()
+
+        # Assuming the `render` method is corrected to produce correctly shaped outputs
+        screen = rendered["screen"]
+        global_map = np.squeeze(rendered["global_map"])  # Removes unnecessary dimensions if any
+
+        # Debug prints to verify shapes
+        # print(f'SCREEN np.shape={screen.shape}, np.size={screen.size}')
+        # print(f'GLOBAL MAP np.shape={global_map.shape}, np.size={global_map.size}')
+
+        # Assuming observation_space is correctly defined to accept these shapes
+        return {"screen": screen, "global_map": global_map}
+
+
+    
+    # BET ADDED TREE OBSERVATIONS
+
+    def calculate_distance_and_angle(self, player_pos, tree_pos):
+        """Calculate the Euclidean distance and angle from player to a tree."""
+        dy, dx = np.array(tree_pos) - np.array(player_pos)
+        distance = np.sqrt(dy**2 + dx**2)
+        angle = np.arctan2(dy, dx)  # Angle in radians
+        return distance, angle
+
+    def trees_features(self, player_pos, trees_positions, N=3):
+        """
+        Calculate distances and angles to the N nearest trees from the player's position.
+        Parameters:
+        - player_pos: Tuple of player's current position (y, x).
+        - trees_positions: List of tuples representing the positions of trees (y, x).
+        - N: Number of nearest trees to consider.
+        Returns:
+        - A flat list of features consisting of distances and angles to the nearest N trees,
+        padded with zeros if fewer than N trees are available.
+        """
+        # Calculate distances and angles to all trees
+        distances_angles = [self.calculate_distance_and_angle(player_pos, pos) for pos in trees_positions]
+        # Sort by distance and select the nearest N
+        nearest_trees = sorted(distances_angles, key=lambda x: x[0])[:N] 
+        # Flatten the list of tuples (distance, angle) for the nearest N trees
+        features = []
+        for distance, angle in nearest_trees:
+            features.extend([distance, angle]) 
+        # Pad with zeros if fewer than N trees are available
+        if len(nearest_trees) < N:
+            features.extend([0] * (2 * N - len(features)))
+        return features
 
     def step(self, action):
         self.run_action_on_emulator(action)
@@ -338,8 +439,8 @@ class RedGymEnv(Base):
         self.max_steps = config["max_steps"]
         self.save_video = config["save_video"]
         self.fast_video = config["fast_video"]
+        self.two_bit = config["two_bit"]
         
-        self.counts_map = np.zeros((444, 436))
         self.death_count = 0
         self.screenshot_counter = 0
         self.include_conditions = []
@@ -480,9 +581,6 @@ class RedGymEnv(Base):
             
     def add_video_frame(self):
         self.full_frame_writer.add_image(self.video())
-
-    def get_game_coords(self):
-        return (ram_map.mem_val(self.pyboy, 0xD362), ram_map.mem_val(self.pyboy, 0xD361), ram_map.mem_val(self.pyboy, 0xD35E))
     
     def check_if_in_start_menu(self) -> bool:
         return (
@@ -559,6 +657,9 @@ class RedGymEnv(Base):
         # else:
         if self.reset_count == 0:
             self.load_pyboy_state(self.load_first_state())
+            self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)  
+        else:
+            self.explore_map *= 0          
 
         if self.save_video:
             base_dir = self.s_path
@@ -637,7 +738,8 @@ class RedGymEnv(Base):
         self.total_reward = sum([val for _, val in self.progress_reward.items()])
         self.money = 0
 
-        return self.render(), {}
+
+        return self._get_obs(), {}
 
     def step(self, action):
         if self.save_video and self.step_count == 0:
@@ -651,15 +753,20 @@ class RedGymEnv(Base):
         reward = sum(game_state_rewards.values())
         self.update_reward()
 
+        # BET ADDED CUT TREE OBSERVATION
+        r, c, map_n = ram_map.position(self.pyboy)
+        self.trees_features((r,c), TREE_POSITIONS_GRID)
+        obs = self._get_obs()
+
         done = self.time >= self.max_episode_steps
 
         info = {}
-        if done or self.time % 5000 == 0:   
+        if done or self.time % 10000 == 0:   
             info = self.agent_stats()
         
         self.time += 1
             
-        return self.render(), reward, done, done, info
+        return obs, reward, done, done, info
    
     def read_m(self, addr):
         return self.pyboy.get_memory_value(addr)
@@ -710,7 +817,7 @@ class RedGymEnv(Base):
                 "total_party_level": sum(self.party_levels),
                 "event": self.max_events,
                 "money": self.money,
-                "pokemon_exploration_map": self.counts_map,
+                # "pokemon_exploration_map": self.counts_map,
                 "seen_npcs_count": len(self.seen_npcs),
                 "seen_pokemon": np.sum(self.seen_pokemon),
                 "caught_pokemon": np.sum(self.caught_pokemon),
@@ -790,6 +897,10 @@ class RedGymEnv(Base):
         }
         return state_scores
 
+    def update_seen_coords(self):
+        x_pos, y_pos, map_n = self.get_game_coords()
+        self.explore_map[game_map.local_to_global(y_pos, x_pos, map_n)] = 1
+    
     def update_reward(self):
         # compute reward
         self.progress_reward = self.get_game_state_reward()

@@ -9,7 +9,6 @@ import time
 X_POS_ADDRESS, Y_POS_ADDRESS = 0xD362, 0xD361
 MAP_N_ADDRESS = 0xD35E
 
-
 def color_generator(step=5): # step=1
     """Generates a continuous spectrum of colors in hex format."""
     hue = 0
@@ -28,7 +27,6 @@ def colors_generator(step=1):
         yield rgb
         hue = (hue + step) % 360
 
-
 class StreamWrapper(gym.Wrapper):
     def __init__(self, env, stream_metadata={}):
         super().__init__(env)
@@ -38,12 +36,12 @@ class StreamWrapper(gym.Wrapper):
         self.stream_metadata = stream_metadata
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.websocket = None
-        self.loop.run_until_complete(
-            self.establish_wc_connection()
+        self.websocket = self.loop.run_until_complete(
+                self.establish_wc_connection()
         )
         self.upload_interval = 150
         self.steam_step_counter = 0
+        self.env = env
         self.coord_list = []
         self.start_time = time.time()        
         if hasattr(env, "pyboy"):
@@ -76,17 +74,19 @@ class StreamWrapper(gym.Wrapper):
         env_id = self.env.env_id
         self.coord_list.append([x_pos, y_pos, map_n])
         
-        
-        # self.stream_metadata["extra"] = f"uptime: {round(self.uptime(), 2)} min, reset#: {reset_count}, {env_id}"
-        # self.stream_metadata["color"] = next(self.color_generator)
-        
         if self.steam_step_counter >= self.upload_interval:
+            
+            setattr(self.stream_metadata, 'extra', f"uptime: {round(self.uptime(), 2)} min,\n reset#: {reset_count}, {env_id}")
+            setattr(self.stream_metadata, 'color', next(self.color_generator))
+            stream_metadata_dict = vars(self.stream_metadata)
+            # self.stream_metadata["extra"] = f"uptime: {round(self.uptime(), 2)} min, reset#: {reset_count}, {env_id}"
+            # self.stream_metadata["color"] = next(self.color_generator)           
             self.loop.run_until_complete(
                 self.broadcast_ws_message(
                     json.dumps(
                         {
-                        #   "metadata": self.stream_metadata,
-                        #   "coords": self.coord_list
+                            "metadata": stream_metadata_dict,
+                            "coords": self.coord_list,
                         }
                     )
                 )

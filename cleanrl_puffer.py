@@ -30,10 +30,10 @@ class Performance:
     total_agent_steps = 0
     epoch_time = 0
     epoch_sps = 0
-    evaluation_time = 0
-    evaluation_sps = 0
-    evaluation_memory = 0
-    evaluation_pytorch_memory = 0
+    eval_time = 0
+    eval_sps = 0
+    eval_memory = 0
+    eval_pytorch_memory = 0
     env_time = 0
     env_sps = 0
     inference_time = 0
@@ -199,6 +199,7 @@ class CleanPuffeRL:
         self.start_time = time.time()
         seed_everything(config.seed, config.torch_deterministic)
         self.total_updates = config.total_timesteps // config.batch_size
+        self.total_agent_steps = 0
 
         self.device = config.device
 
@@ -250,10 +251,6 @@ class CleanPuffeRL:
             # TODO: Figure out how to compile the optimizer!
             # self.calculate_loss = torch.compile(self.calculate_loss, mode=config.compile_mode)
 
-        if config.verbose:
-            self.n_params = sum(p.numel() for p in self.agent.parameters() if p.requires_grad)
-            print(f"Model Size: {self.n_params//1000} K parameters")
-
         if self.opt_state is not None:
             self.optimizer.load_state_dict(resume_state["optimizer_state_dict"])
 
@@ -279,7 +276,7 @@ class CleanPuffeRL:
                 torch.zeros(shape, device=self.device),
                 torch.zeros(shape, device=self.device),
             )
-        self.obs = torch.zeros(config.batch_size + 1, *obs_shape)
+        self.obs = torch.zeros(config.batch_size + 1, *obs_shape, dtype=torch.uint8)
         self.actions = torch.zeros(config.batch_size + 1, *atn_shape, dtype=int)
         self.logprobs = torch.zeros(config.batch_size + 1)
         self.rewards = torch.zeros(config.batch_size + 1)
@@ -287,7 +284,7 @@ class CleanPuffeRL:
         self.truncateds = torch.zeros(config.batch_size + 1)
         self.values = torch.zeros(config.batch_size + 1)
 
-        self.obs_ary = np.asarray(self.obs)
+        self.obs_ary = np.asarray(self.obs, dtype=np.uint8)
         self.actions_ary = np.asarray(self.actions)
         self.logprobs_ary = np.asarray(self.logprobs)
         self.rewards_ary = np.asarray(self.rewards)
@@ -336,12 +333,11 @@ class CleanPuffeRL:
                         f"skillrank/{policy}": elo
                         for policy, elo in self.policy_pool.ranker.ratings.items()
                     },
-                }
+                },
             )
             self.log = False
 
         self.policy_pool.update_policies()
-        performance = defaultdict(list)
         env_profiler = pufferlib.utils.Profiler()
         inference_profiler = pufferlib.utils.Profiler()
         eval_profiler = pufferlib.utils.Profiler(memory=True, pytorch_memory=True).start()
@@ -434,29 +430,14 @@ class CleanPuffeRL:
             with env_profiler:
                 self.pool.send(actions)
 
-        self.reward_buffer.append(r.cpu().sum().numpy())
-        # Probably should normalize the rewards before trying to take the variance...
-        reward_var = np.var(self.reward_buffer)
-        if self.log and self.wandb is not None:
-            self.wandb.log(
-                {
-                    "reward/reward_var": reward_var,
-                    "reward/reward_buffer_len": len(self.reward_buffer),
-                },
-                step=self.global_step
-            )
-        if (
-            self.taught_cut
-            and len(self.reward_buffer) == self.reward_buffer.maxlen
-            and reward_var < 2.5e-3
-        ):
-            self.reward_buffer.clear()
-            # reset lr update if the reward starts stalling
-            self.lr_update = 1.0
-
         eval_profiler.stop()
 
-        # self.global_step += padded_steps_collected
+        # Now that we initialized the model, we can get the number of parameters
+        if self.global_step == 0 and self.config.verbose:
+            self.n_params = sum(p.numel() for p in self.agent.parameters() if p.requires_grad)
+            print(f"Model Size: {self.n_params//1000} K parameters")
+
+        self.total_agent_steps += padded_steps_collected
         new_step = np.mean(self.infos["learner"]["stats/step"])
         if new_step > self.global_step:
             self.global_step = new_step
@@ -466,7 +447,7 @@ class CleanPuffeRL:
 
         perf = self.performance
         perf.total_uptime = int(time.time() - self.start_time)
-        perf.total_agent_steps = self.global_step
+        perf.total_agent_steps = self.total_agent_steps
         perf.env_time = env_profiler.elapsed
         perf.env_sps = int(agent_steps_collected / env_profiler.elapsed)
         perf.inference_time = inference_profiler.elapsed
@@ -492,9 +473,7 @@ class CleanPuffeRL:
             try:  # TODO: Better checks on log data types
                 self.stats[k] = np.mean(v)
                 self.max_stats[k] = np.max(v)
-                if self.max_stats["got_hm01"] > 0:
-                    self.taught_cut = True
-            except:
+            except:  # noqa
                 continue
 
         if config.verbose:
@@ -548,11 +527,11 @@ class CleanPuffeRL:
                 )
 
         # Flatten the batch
-        self.b_obs = b_obs = torch.Tensor(self.obs_ary[b_idxs])
-        b_actions = torch.Tensor(self.actions_ary[b_idxs]).to(self.device, non_blocking=True)
-        b_logprobs = torch.Tensor(self.logprobs_ary[b_idxs]).to(self.device, non_blocking=True)
-        b_dones = torch.Tensor(self.dones_ary[b_idxs]).to(self.device, non_blocking=True)
-        b_values = torch.Tensor(self.values_ary[b_idxs]).to(self.device, non_blocking=True)
+        self.b_obs = b_obs = torch.tensor(self.obs_ary[b_idxs], dtype=torch.uint8)
+        b_actions = torch.tensor(self.actions_ary[b_idxs]).to(self.device, non_blocking=True)
+        b_logprobs = torch.tensor(self.logprobs_ary[b_idxs]).to(self.device, non_blocking=True)
+        # b_dones = torch.Tensor(self.dones_ary[b_idxs]).to(self.device, non_blocking=True)
+        b_values = torch.tensor(self.values_ary[b_idxs]).to(self.device, non_blocking=True)
         b_advantages = advantages.reshape(
             config.batch_rows, num_minibatches, config.bptt_horizon
         ).transpose(0, 1)
@@ -561,7 +540,9 @@ class CleanPuffeRL:
         # Optimizing the policy and value network
         train_time = time.time()
         pg_losses, entropy_losses, v_losses, clipfracs, old_kls, kls = [], [], [], [], [], []
-        mb_obs_buffer = torch.zeros_like(b_obs[0], pin_memory=(self.device == "cuda"))
+        mb_obs_buffer = torch.zeros_like(
+            b_obs[0], pin_memory=(self.device == "cuda"), dtype=torch.uint8
+        )
 
         for epoch in range(config.update_epochs):
             lstm_state = None
@@ -667,8 +648,9 @@ class CleanPuffeRL:
 
         self.update += 1
         self.lr_update += 1
-        # if self.update % config.checkpoint_interval == 0 or self.done_training():
-        #     self.save_checkpoint()
+
+        if self.update % config.checkpoint_interval == 0 or self.done_training():
+            self.save_checkpoint()
 
     def close(self):
         self.pool.close()
@@ -684,6 +666,9 @@ class CleanPuffeRL:
         """
 
     def save_checkpoint(self):
+        if self.config.save_checkpoint is False:
+            return
+
         path = os.path.join(self.config.data_dir, self.exp_name)
         if not os.path.exists(path):
             os.makedirs(path)
@@ -712,6 +697,8 @@ class CleanPuffeRL:
         torch.save(state, state_path + ".tmp")
         os.rename(state_path + ".tmp", state_path)
 
+        print(f"Model saved to {model_path}")
+
         return model_path
 
     def calculate_loss(self, pg_loss, entropy_loss, v_loss):
@@ -728,6 +715,7 @@ class CleanPuffeRL:
         return self
 
     def __exit__(self, *args):
-        print("Done training. Saving data...")
+        print("Done training.")
+        self.save_checkpoint()
         self.close()
         print("Run complete")

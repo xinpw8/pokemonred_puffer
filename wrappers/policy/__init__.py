@@ -1,2 +1,0 @@
-from pokemonred_puffer.wrappers.policy.policies import one_hot, MultiConvolutionPolicy, RecurrentWrapper, Policy
-from pokemonred_puffer.wrappers.policy.policy_multiconv import one_hot, RecurrentMultiConvolutionalWrapper, MultiConvolutionalPolicy
