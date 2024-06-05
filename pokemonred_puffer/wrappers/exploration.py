@@ -5,6 +5,12 @@ import numpy as np
 import pufferlib
 from pokemonred_puffer.environment import RedGymEnv
 from pokemonred_puffer.global_map import local_to_global
+import logging
+
+# Mute specific debug logs
+logging.getLogger("websockets").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("gymnasium").setLevel(logging.WARNING)
 
 
 class LRUCache:
@@ -91,5 +97,7 @@ class MaxLengthWrapper(gym.Wrapper):
         return step
 
     def reset(self, *args, **kwargs):
+        print(f"Wrapper exploration.py reset called with kwargs: {kwargs}")
+        logging.debug("Wrapper exploration.py reset called with kwargs: %s", kwargs)
         self.cache.clear()
         return self.env.reset(*args, **kwargs)

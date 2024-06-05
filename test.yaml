@@ -1,4 +1,40 @@
+env:
+  gb_path: thatguy_obs_copy/pokemonred_puffer/pokemonred_puffer/red.gb
+  headless: True
+  save_final_state: True
+  print_rewards: True
+  video_dir: video
+  state_dir: pyboy_states
+  init_state: Bulbasaur
+  action_freq: 24
+  max_steps: 20480
+  save_video: False
+  fast_video: False
+  frame_stacks: 1
+  perfect_ivs: True
+  reduce_res: True
+  two_bit: True
+  log_frequency: 2000
+
 train:
+  device: cpu
+  compile: False
+  compile_mode: default
+  num_envs: 1
+  envs_per_worker: 1
+  envs_per_batch: 1
+  batch_size: 16
+  batch_rows: 4
+  bptt_horizon: 2
+  total_timesteps: 100_000_000
+  save_checkpoint: True
+  checkpoint_interval: 4
+  save_overlay: True
+  overlay_interval: 4
+  verbose: False
+  env_pool: False
+  log_frequency: 5000
+  load_optimizer_state: False
   seed: 1
   torch_deterministic: True
   device: cpu
@@ -33,6 +69,9 @@ train:
   bptt_horizon: 8
   vf_clip_coef: 0.1
   compile: False
+  load_optimizer_state: False
+  # swarm_frequency: 10
+  # swarm_keep_pct: .1
 
 sweep:
   method: random
@@ -79,3 +118,102 @@ pokemonred:
   package: pokemon_red
 pokemon:
   package: pokemon_red
+
+wrappers:
+  baseline:
+    - stream_wrapper.StreamWrapper:
+        user: bet
+    - exploration.DecayWrapper:
+        step_forgetting_factor:
+          npc: 0.995
+          coords: 0.9995
+          map_ids: 0.995
+          explore: 0.9995
+          start_menu: 0.998
+          pokemon_menu: 0.998
+          stats_menu: 0.998
+          bag_menu: 0.998
+          action_bag_menu: 0.998
+        forgetting_frequency: 10
+  
+  finite_coords:
+    - stream_wrapper.StreamWrapper:
+        user: bet
+    - exploration.MaxLengthWrapper:
+        capacity: 1750
+
+  stream_only:
+    - stream_wrapper.StreamWrapper:
+        user: bet 
+
+rewards:
+  baseline.BaselineRewardEnv:
+    reward: {}
+  baseline.TeachCutReplicationEnv:
+    reward:
+      event: 1.0
+      bill_saved: 5.0
+      seen_pokemon: 4.0
+      caught_pokemon: 4.0
+      moves_obtained: 4.0
+      hm_count: 10.0
+      level: 1.0
+      badges: 10.0
+      exploration: 0.02
+      cut_coords: 1.0
+      cut_tiles: 1.0
+      start_menu: 0.01
+      pokemon_menu: 0.1
+      stats_menu: 0.1
+      bag_menu: 0.1
+  baseline.TeachCutReplicationEnvFork:
+    reward:
+      event: 1.0
+      bill_saved: 5.0
+      moves_obtained: 4.0
+      hm_count: 10.0
+      badges: 10.0
+      exploration: 0.02
+      cut_coords: 1.0
+      cut_tiles: 1.0
+      start_menu: 0.01
+      pokemon_menu: 0.1
+      stats_menu: 0.1
+      bag_menu: 0.1
+      taught_cut: 10.0
+      explore_npcs: 0.02
+      explore_hidden_objs: 0.02
+
+  baseline.RockTunnelReplicationEnv:
+    reward:
+      level: 1.0
+      exploration: 0.02
+      taught_cut: 10.0
+      event: 3.0
+      seen_pokemon: 4.0
+      caught_pokemon: 4.0
+      moves_obtained: 4.0
+      cut_coords: 1.0
+      cut_tiles: 1.0
+      start_menu: 0.005
+      pokemon_menu: 0.05
+      stats_menu: 0.05
+      bag_menu: 0.05
+      pokecenter: 5.0
+      # Really an addition to event reward
+      badges: 2.0
+      bill_saved: 2.0
+
+
+
+policies:
+  multi_convolutional.MultiConvolutionalPolicy:
+    policy:
+      hidden_size: 512
+
+    recurrent:
+      # Assumed to be in the same module as the policy
+      name: RecurrentMultiConvolutionalWrapper
+      input_size: 512
+      hidden_size: 512
+      num_layers: 1

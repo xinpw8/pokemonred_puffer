@@ -19,7 +19,15 @@ dependencies = [
     "pufferlib[cleanrl]>=0.7.3",
     "torch>=2.1",
     "torchvision",
-    "wandb"
+    "wandb",
+    "gymnasium",
+    "pettingzoo",
+    "websockets",
+    "gym",
+    "matplotlib",
+    "mediapy",
+    "pyboy",
+    "scikit-image",
 ]
 
 [tool.setuptools.packages.find]

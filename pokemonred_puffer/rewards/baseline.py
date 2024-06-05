@@ -6,6 +6,12 @@ from pokemonred_puffer.environment import (
 )
 
 import numpy as np
+import logging
+
+# Mute specific debug logs
+logging.getLogger("websockets").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("gymnasium").setLevel(logging.WARNING)
 
 MUSEUM_TICKET = (0xD754, 0)
 
@@ -51,7 +57,7 @@ class BaselineRewardEnv(RedGymEnv):
             "bag_menu": self.seen_bag_menu * 0.1,
             "action_bag_menu": self.seen_action_bag_menu * 0.1,
             # "blackout_check": self.blackout_check * 0.001,
-            "rival3": self.reward_config["event"] * int(self.read_m(0xD665) == 4),
+            # "rival3": self.reward_config["event"] * int(self.read_m(0xD665) == 4),
         }
 
     def update_max_event_rew(self):

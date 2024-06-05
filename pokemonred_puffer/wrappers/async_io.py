@@ -3,6 +3,12 @@ from multiprocessing import Queue
 import gymnasium as gym
 
 from pokemonred_puffer.environment import RedGymEnv
+import logging
+
+# Mute specific debug logs
+logging.getLogger("websockets").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("gymnasium").setLevel(logging.WARNING)
 
 
 class AsyncWrapper(gym.Wrapper):

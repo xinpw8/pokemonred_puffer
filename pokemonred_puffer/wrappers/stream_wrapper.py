@@ -6,6 +6,12 @@ import websockets
 
 import pufferlib
 from pokemonred_puffer.environment import RedGymEnv
+import logging
+
+# Mute specific debug logs
+logging.getLogger("websockets").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("gymnasium").setLevel(logging.WARNING)
 
 
 class StreamWrapper(gym.Wrapper):
@@ -65,4 +71,6 @@ class StreamWrapper(gym.Wrapper):
             self.websocket = None
 
     def reset(self, *args, **kwargs):
+        print(f"Wrapper stream_wrapper.py reset called with kwargs: {kwargs}")
+        logging.debug("Wrapper stream_wrapper.py reset called with kwargs: %s", kwargs)
         return self.env.reset(*args, **kwargs)

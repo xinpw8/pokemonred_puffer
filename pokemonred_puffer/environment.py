@@ -6,11 +6,11 @@ from collections import deque
 from multiprocessing import Lock, shared_memory
 from pathlib import Path
 from typing import Any, Iterable, Optional
-import uuid
 
 import mediapy as media
 import numpy as np
 from gymnasium import Env, spaces
+from gymnasium.utils import seeding
 from pyboy import PyBoy
 from pyboy.utils import WindowEvent
 from skimage.transform import resize
@@ -170,9 +170,9 @@ class RedGymEnv(Env):
 
     def __init__(self, env_config: pufferlib.namespace):
         # TODO: Dont use pufferlib.namespace. It seems to confuse __init__
-        self.video_dir = Path(env_config.video_dir)
+        # self.video_dir = Path(env_config.video_dir)
         self.session_path = Path(env_config.session_path)
-        self.video_path = self.video_dir / self.session_path
+        # self.video_path = self.video_dir / self.session_path
         self.save_final_state = env_config.save_final_state
         self.print_rewards = env_config.print_rewards
         self.headless = env_config.headless
@@ -190,6 +190,8 @@ class RedGymEnv(Env):
         self.log_frequency = env_config.log_frequency
         self.two_bit = env_config.two_bit
         self.action_space = ACTION_SPACE
+        self.np_random = None
+        self.seed(env_config.get("seed", None))
 
         # Obs space-related. TODO: avoid hardcoding?
         if self.reduce_res:
@@ -205,13 +207,13 @@ class RedGymEnv(Env):
         self.coords_pad = 12
         self.enc_freqs = 8
 
-        # NOTE: Used for saving video
-        if env_config.save_video:
-            self.instance_id = str(uuid.uuid4())[:8]
-            self.video_dir.mkdir(exist_ok=True)
-            self.full_frame_writer = None
-            self.model_frame_writer = None
-            self.map_frame_writer = None
+        # # NOTE: Used for saving video
+        # if env_config.save_video:
+        #     self.instance_id = str(uuid.uuid4())[:8]
+        #     self.video_dir.mkdir(exist_ok=True)
+        #     self.full_frame_writer = None
+        #     self.model_frame_writer = None
+        #     self.map_frame_writer = None
         self.reset_count = 0
         self.all_runs = []
 
@@ -292,10 +294,17 @@ class RedGymEnv(Env):
         # self.pyboy.hook_register(None, "UsedCut.nothingToCut", self.cut_hook, context=True)
         # self.pyboy.hook_register(None, "UsedCut.canCut", self.cut_hook, context=False)
 
+    def seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
+
     def update_state(self, state: bytes):
-        self.reset(seed=random.randint(0, 10), options={"state": state})
+        self.reset(seed=random.randint(0, 100), options={"state": state})
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
+        if seed is not None:
+            self.seed(seed)
+
         # restart game, skipping credits
         options = options or {}
 
