@@ -6,14 +6,15 @@ from collections import deque
 from multiprocessing import Lock, shared_memory
 from pathlib import Path
 from typing import Any, Iterable, Optional
+import uuid
 
 import mediapy as media
 import numpy as np
 from gymnasium import Env, spaces
-from gymnasium.utils import seeding
 from pyboy import PyBoy
 from pyboy.utils import WindowEvent
 from skimage.transform import resize
+from . import ram_map
 
 import pufferlib
 from pokemonred_puffer.global_map import GLOBAL_MAP_SHAPE, local_to_global
@@ -170,9 +171,9 @@ class RedGymEnv(Env):
 
     def __init__(self, env_config: pufferlib.namespace):
         # TODO: Dont use pufferlib.namespace. It seems to confuse __init__
-        # self.video_dir = Path(env_config.video_dir)
+        self.video_dir = Path(env_config.video_dir)
         self.session_path = Path(env_config.session_path)
-        # self.video_path = self.video_dir / self.session_path
+        self.video_path = self.video_dir / self.session_path
         self.save_final_state = env_config.save_final_state
         self.print_rewards = env_config.print_rewards
         self.headless = env_config.headless
@@ -189,9 +190,35 @@ class RedGymEnv(Env):
         self.gb_path = env_config.gb_path
         self.log_frequency = env_config.log_frequency
         self.two_bit = env_config.two_bit
+        self.auto_flash = env_config.auto_flash
         self.action_space = ACTION_SPACE
-        self.np_random = None
-        self.seed(env_config.get("seed", None))
+        self.levels = 0
+        self.rocket_hideout_maps = [199, 200, 201, 202, 203]
+        self.poketower_maps = [142, 143, 144, 145, 146, 147, 148]
+        self.silph_co_maps = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
+        self.pokemon_tower_maps = [142, 143, 144, 145, 146, 147, 148]
+        self.vermilion_city_gym_map = [92]
+        self.advanced_gym_maps = [
+            92,
+            134,
+            157,
+            166,
+            178,
+        ]  # Vermilion, Celadon, Fuchsia, Cinnabar, Saffron
+        self.routes_9_and_10_and_rock_tunnel = [20, 21, 82, 232]
+        self.route_9 = [20]
+        self.route_10 = [21]
+        self.rock_tunnel = [82, 232]
+        self.route_9_completed = False
+        self.route_10_completed = False
+        self.rock_tunnel_completed = False
+        self.bonus_exploration_reward_maps = (
+            self.rocket_hideout_maps
+            + self.poketower_maps
+            + self.silph_co_maps
+            + self.vermilion_city_gym_map
+            + self.advanced_gym_maps
+        )
 
         # Obs space-related. TODO: avoid hardcoding?
         if self.reduce_res:
@@ -207,13 +234,13 @@ class RedGymEnv(Env):
         self.coords_pad = 12
         self.enc_freqs = 8
 
-        # # NOTE: Used for saving video
-        # if env_config.save_video:
-        #     self.instance_id = str(uuid.uuid4())[:8]
-        #     self.video_dir.mkdir(exist_ok=True)
-        #     self.full_frame_writer = None
-        #     self.model_frame_writer = None
-        #     self.map_frame_writer = None
+        # NOTE: Used for saving video
+        if env_config.save_video:
+            self.instance_id = str(uuid.uuid4())[:8]
+            self.video_dir.mkdir(exist_ok=True)
+            self.full_frame_writer = None
+            self.model_frame_writer = None
+            self.map_frame_writer = None
         self.reset_count = 0
         self.all_runs = []
 
@@ -289,22 +316,21 @@ class RedGymEnv(Env):
         self.pyboy.hook_register(
             None, "CheckForHiddenObject.foundMatchingObject", self.hidden_object_hook, None
         )
+        """
+        _, addr = self.pyboy.symbol_lookup("IsSpriteOrSignInFrontOfPlayer.retry")
+        self.pyboy.hook_register(
+            None, addr-1, self.sign_hook, None
+        )
+        """
         self.pyboy.hook_register(None, "HandleBlackOut", self.blackout_hook, None)
         self.pyboy.hook_register(None, "SetLastBlackoutMap.done", self.blackout_update_hook, None)
         # self.pyboy.hook_register(None, "UsedCut.nothingToCut", self.cut_hook, context=True)
         # self.pyboy.hook_register(None, "UsedCut.canCut", self.cut_hook, context=False)
 
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
-
     def update_state(self, state: bytes):
-        self.reset(seed=random.randint(0, 100), options={"state": state})
+        self.reset(seed=random.randint(0, 10), options={"state": state})
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
-        if seed is not None:
-            self.seed(seed)
-
         # restart game, skipping credits
         options = options or {}
 
@@ -315,6 +341,7 @@ class RedGymEnv(Env):
             self.init_mem()
             # We only init seen hidden objs once cause they can only be found once!
             self.seen_hidden_objs = {}
+            self.seen_signs = {}
             if options.get("state", None) is not None:
                 self.pyboy.load_state(io.BytesIO(options["state"]))
                 self.reset_count += 1
@@ -364,6 +391,10 @@ class RedGymEnv(Env):
         self.step_count = 0
         self.blackout_check = 0
         self.blackout_count = 0
+        self.levels = [
+            self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
+        ]
+        self.exp_bonus = 0
 
         self.current_event_flags_set = {}
 
@@ -562,7 +593,7 @@ class RedGymEnv(Env):
             # "x": np.array(player_x, dtype=np.uint8),
             # "y": np.array(player_y, dtype=np.uint8),
             # "map_id": np.array(map_n, dtype=np.uint8),
-            "badges": np.array(self.read_m("wObtainedBadges"), dtype=np.uint8),
+            "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
         }
 
     def set_perfect_iv_dvs(self):
@@ -580,9 +611,30 @@ class RedGymEnv(Env):
                 return True
         return False
 
+    def visited_maps(self):
+        _, _, map_n = ram_map.position(self.game)
+        if map_n in self.routes_9_and_10_and_rock_tunnel:
+            self.seen_routes_9_and_10_and_rock_tunnel = True
+        if map_n in self.route_9:
+            self.seen_route_9 = True
+        if map_n in self.route_10:
+            self.seen_route_10 = True
+        if map_n in self.rock_tunnel:
+            self.seen_rock_tunnel = True
+        if map_n in self.route_10 and self.seen_route_9:
+            self.route_9_completed = True
+        if map_n in self.rock_tunnel and self.seen_route_10:
+            self.route_10_completed = True
+        if map_n in [4] and self.seen_rock_tunnel:  # Lavender Town
+            self.rock_tunnel_completed = True
+
     def step(self, action):
         if self.save_video and self.step_count == 0:
             self.start_video()
+
+        _, wMapPalOffset = self.pyboy.symbol_lookup("wMapPalOffset")
+        if self.auto_flash and self.pyboy.memory[wMapPalOffset] == 6:
+            self.pyboy.memory[wMapPalOffset] = 0
 
         self.run_action_on_emulator(action)
         self.update_seen_coords()
@@ -720,6 +772,12 @@ class RedGymEnv(Env):
                 self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
                 self.pyboy.tick(4 * self.action_freq, render=True)
 
+    def sign_hook(self, *args, **kwargs):
+        sign_id = self.pyboy.memory[self.pyboy.symbol_lookup("hSpriteIndexOrTextID")[1]]
+        map_id = self.pyboy.memory[self.pyboy.symbol_lookup("wCurMap")[1]]
+        # We will store this by map id, y, x,
+        self.seen_hidden_objs[(map_id, sign_id)] = 1
+
     def hidden_object_hook(self, *args, **kwargs):
         hidden_object_id = self.pyboy.memory[self.pyboy.symbol_lookup("wHiddenObjectIndex")[1]]
         map_id = self.pyboy.memory[self.pyboy.symbol_lookup("wCurMap")[1]]
@@ -788,15 +846,17 @@ class RedGymEnv(Env):
         self.cut_tiles[wTileInFrontOfPlayer] = 1
 
     def agent_stats(self, action):
-        levels = [self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))]
+        self.levels = [
+            self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
+        ]
         return {
             "stats": {
-                "step": self.step_count + self.reset_count * self.max_steps,
+                "step": self.get_global_steps(),  # self.step_count + self.reset_count * self.max_steps,
                 "max_map_progress": self.max_map_progress,
                 "last_action": action,
                 "party_count": self.read_m("wPartyCount"),
-                "levels": levels,
-                "levels_sum": sum(levels),
+                "levels": self.levels,
+                "levels_sum": sum(self.levels),
                 "ptypes": self.read_party(),
                 "hp": self.read_hp_fraction(),
                 "coord": sum(self.seen_coords.values()),  # np.sum(self.seen_global_coords),
@@ -805,6 +865,14 @@ class RedGymEnv(Env):
                 "hidden_obj": sum(self.seen_hidden_objs.values()),
                 "deaths": self.died_count,
                 "badge": self.get_badges(),
+                "badge_1": int(self.get_badges() >= 1),
+                "badge_2": int(self.get_badges() >= 2),
+                "badge_3": int(self.get_badges() >= 3),
+                "badge_4": int(self.get_badges() >= 4),
+                "badge_5": int(self.get_badges() >= 5),
+                "badge_6": int(self.get_badges() >= 6),
+                "badge_7": int(self.get_badges() >= 7),
+                "badge_8": int(self.get_badges() >= 8),
                 "event": self.progress_reward["event"],
                 "healr": self.total_heal_health,
                 "action_hist": self.action_hist,
@@ -1037,3 +1105,6 @@ class RedGymEnv(Env):
             - int(self.read_bit(*MUSEUM_TICKET)),
             0,
         )
+
+    def get_global_steps(self):
+        return self.step_count + self.reset_count * self.max_steps

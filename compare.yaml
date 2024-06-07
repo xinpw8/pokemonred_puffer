@@ -1,6 +1,6 @@
 wandb:
-  entity: xinpw8
-  project: pokemonred
+  entity: thatguy11325
+  project: pokemon
   group: ~
 
 debug:
@@ -46,7 +46,7 @@ env:
   perfect_ivs: True
   reduce_res: True
   two_bit: True
-  log_frequency: 1000
+  log_frequency: 2000
   auto_flash: True
 
 train:
@@ -96,7 +96,7 @@ train:
 wrappers:
   baseline:
     - stream_wrapper.StreamWrapper:
-        user: bet_bet_bet
+        user: thatguy
     - exploration.DecayWrapper:
         step_forgetting_factor:
           npc: 0.995
@@ -112,13 +112,13 @@ wrappers:
   
   finite_coords:
     - stream_wrapper.StreamWrapper:
-        user: bet_bet_bet
+        user: thatguy
     - exploration.MaxLengthWrapper:
         capacity: 1750
 
   stream_only:
     - stream_wrapper.StreamWrapper:
-        user: bet_bet_bet 
+        user: thatguy 
 
 rewards:
   baseline.BaselineRewardEnv:
@@ -168,18 +168,15 @@ rewards:
       moves_obtained: 4.0
       hm_count: 10.0
       level: 1.0
-      badges: 15.0
-      exploration: 0.03
+      badges: 10.0
+      exploration: 0.02
       cut_coords: 0.0
       cut_tiles: 0.0
       start_menu: 0.00
       pokemon_menu: 0.0
       stats_menu: 0.0
       bag_menu: 0.0
-      rocket_hideout_found: 10
-      event_scale: 0.04248 # experimentally-determined
-      gym_3_events: 5.0
-      exp_bonus: 1
+      rocket_hideout_found: 5.0
 
 
 
