@@ -191,8 +191,16 @@ class RedGymEnv(Env):
         self.log_frequency = env_config.log_frequency
         self.two_bit = env_config.two_bit
         self.auto_flash = env_config.auto_flash
+        self.load_states_on_start = env_config.load_states_on_start
+        self.furthest_states_dir = env_config.furthest_states_dir
+        self.save_each_env_state_dir = env_config.save_each_env_state_dir
+        self.load_furthest_map_n_on_reset = env_config.load_furthest_map_n_on_reset
+        self.disable_wild_encounters = env_config.disable_wild_encounters
+        self.disable_ai_actions = env_config.disable_ai_actions
+        self.save_each_env_state_freq = env_config.save_each_env_state_freq
         self.action_space = ACTION_SPACE
         self.levels = 0
+        self.state_already_saved = False
         self.rocket_hideout_maps = [199, 200, 201, 202, 203]
         self.poketower_maps = [142, 143, 144, 145, 146, 147, 148]
         self.silph_co_maps = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
@@ -326,9 +334,64 @@ class RedGymEnv(Env):
         self.pyboy.hook_register(None, "SetLastBlackoutMap.done", self.blackout_update_hook, None)
         # self.pyboy.hook_register(None, "UsedCut.nothingToCut", self.cut_hook, context=True)
         # self.pyboy.hook_register(None, "UsedCut.canCut", self.cut_hook, context=False)
+        if self.disable_wild_encounters:
+            print("registering")
+            bank, addr = self.pyboy.symbol_lookup("TryDoWildEncounter.gotWildEncounterType")
+            self.pyboy.hook_register(
+                bank,
+                addr + 8,
+                self.disable_wild_encounter_hook,
+                None,
+            )
 
     def update_state(self, state: bytes):
         self.reset(seed=random.randint(0, 10), options={"state": state})
+
+    def save_all_states(self):
+        # Define the directory where the saved state will be stored
+        saved_state_dir = self.save_each_env_state_dir
+        # Check if the directory exists, if not, create it
+        if not os.path.exists(saved_state_dir):
+            os.makedirs(saved_state_dir, exist_ok=True)
+        # Define the filename for the saved state, using env_id for uniqueness
+        saved_state_file = os.path.join(saved_state_dir, f"state_{self.env_id}.state")
+        # Save the game state to the file
+        with open(saved_state_file, "wb") as file:
+            self.pyboy.save_state(file)
+        # Print confirmation message
+        print("State saved for env_id:", self.env_id)
+        # Mark that the state has been saved
+        self.state_already_saved = True
+
+    def load_all_states(self):
+        # Define the directory where the saved state is stored
+        saved_state_dir = self.save_each_env_state_dir
+        if not os.path.exists(saved_state_dir):
+            os.makedirs(saved_state_dir, exist_ok=True)
+        # Try to load the state for the current env_id
+        saved_state_file = os.path.join(saved_state_dir, f"state_{self.env_id}.state")
+        # Check if the saved state file exists
+        if os.path.exists(saved_state_file):
+            # Load the game state from the file
+            with open(saved_state_file, "rb") as file:
+                self.pyboy.load_state(file)
+            # Print confirmation message
+            print(f"State loaded for env_id: {self.env_id}")
+        else:
+            # Load a random state if the state for the current env_id does not exist
+            state_files = [f for f in os.listdir(saved_state_dir) if f.endswith(".state")]
+            if state_files:
+                # Choose a random state file
+                random_state_file = os.path.join(saved_state_dir, random.choice(state_files))
+                # Load the game state from the randomly chosen file
+                with open(random_state_file, "rb") as file:
+                    self.pyboy.load_state(file)
+                # Print confirmation message
+                print(
+                    f"No state found for env_id: {self.env_id}. Loaded random state: {random_state_file}"
+                )
+            else:
+                print(f"No saved states found in {saved_state_dir}")
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
         # restart game, skipping credits
@@ -345,20 +408,22 @@ class RedGymEnv(Env):
             if options.get("state", None) is not None:
                 self.pyboy.load_state(io.BytesIO(options["state"]))
                 self.reset_count += 1
+            elif self.load_states_on_start:
+                self.load_all_states()
             else:
                 with open(self.init_state_path, "rb") as f:
                     self.pyboy.load_state(f)
-                self.reset_count = 0
-                self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
-                self.cut_explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
-                self.base_event_flags = sum(
-                    self.read_m(i).bit_count()
-                    for i in range(EVENT_FLAGS_START, EVENT_FLAGS_START + EVENTS_FLAGS_LENGTH)
-                )
-                self.seen_pokemon = np.zeros(152, dtype=np.uint8)
-                self.caught_pokemon = np.zeros(152, dtype=np.uint8)
-                self.moves_obtained = np.zeros(0xA5, dtype=np.uint8)
-                self.pokecenters = np.zeros(252, dtype=np.uint8)
+            self.reset_count = 0
+            self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+            self.cut_explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+            self.base_event_flags = sum(
+                self.read_m(i).bit_count()
+                for i in range(EVENT_FLAGS_START, EVENT_FLAGS_START + EVENTS_FLAGS_LENGTH)
+            )
+            self.seen_pokemon = np.zeros(152, dtype=np.uint8)
+            self.caught_pokemon = np.zeros(152, dtype=np.uint8)
+            self.moves_obtained = np.zeros(0xA5, dtype=np.uint8)
+            self.pokecenters = np.zeros(252, dtype=np.uint8)
             # lazy random seed setting
             # if not seed:
             #     seed = random.randint(0, 4096)
@@ -366,14 +431,21 @@ class RedGymEnv(Env):
         else:
             self.reset_count += 1
 
+        if self.load_furthest_map_n_on_reset:
+            if self.reset_count % 6 == 0:
+                self.load_furthest_state()
+                ram_map.update_party_hp_to_max(self.pyboy)
+                ram_map.restore_party_move_pp(self.pyboy)
+
+        self.explore_map *= 0
         self.recent_screens.clear()
         self.recent_actions.clear()
         self.seen_pokemon.fill(0)
         self.caught_pokemon.fill(0)
         self.moves_obtained.fill(0)
-        self.explore_map *= 0
-        self.cut_explore_map *= 0
         self.reset_mem()
+
+        self.cut_explore_map *= 0
 
         self.update_pokedex()
         self.update_tm_hm_moves_obtained()
@@ -658,9 +730,12 @@ class RedGymEnv(Env):
             state.seek(0)
             info["state"] = state.read()
 
-        # TODO: Make log frequency a configuration parameter
         if self.step_count % self.log_frequency == 0:
             info = info | self.agent_stats(action)
+
+        global_step_count = self.get_global_steps()
+        if global_step_count % self.save_each_env_state_freq == 0:
+            self.save_all_states()
 
         obs = self._get_obs()
 
@@ -676,8 +751,9 @@ class RedGymEnv(Env):
         self.action_hist[action] += 1
         # press button then release after some steps
         # TODO: Add video saving logic
-        self.pyboy.send_input(VALID_ACTIONS[action])
-        self.pyboy.send_input(VALID_RELEASE_ACTIONS[action], delay=8)
+        if not self.disable_ai_actions:
+            self.pyboy.send_input(VALID_ACTIONS[action])
+            self.pyboy.send_input(VALID_RELEASE_ACTIONS[action], delay=8)
         self.pyboy.tick(self.action_freq, render=True)
 
         if self.read_bit(0xD803, 0):
@@ -845,6 +921,10 @@ class RedGymEnv(Env):
         self.cut_explore_map[local_to_global(y, x, map_id)] = 1
         self.cut_tiles[wTileInFrontOfPlayer] = 1
 
+    def disable_wild_encounter_hook(self, *args, **kwargs):
+        self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = 0xFF
+        self.pyboy.memory[self.pyboy.symbol_lookup("wCurEnemyLVL")[1]] = 0x01
+
     def agent_stats(self, action):
         self.levels = [
             self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
@@ -883,6 +963,7 @@ class RedGymEnv(Env):
                 "met_bill": int(self.read_bit(0xD7F1, 0)),
                 "used_cell_separator_on_bill": int(self.read_bit(0xD7F2, 3)),
                 "ss_ticket": int(self.read_bit(0xD7F2, 4)),
+                "got_bill_but_not_badge_2": self.got_bill_but_not_badge_2(),
                 "met_bill_2": int(self.read_bit(0xD7F2, 5)),
                 "bill_said_use_cell_separator": int(self.read_bit(0xD7F2, 6)),
                 "left_bills_house_after_helping": int(self.read_bit(0xD7F2, 7)),
@@ -1000,6 +1081,19 @@ class RedGymEnv(Env):
         party_length = self.pyboy.memory[self.pyboy.symbol_lookup("wPartyCount")[1]]
         return self.pyboy.memory[addr : addr + party_length]
 
+    # returns 1 if bill is saved
+    def check_bill_state(self):
+        return int(self.read_bit(0xD7F2, 3))
+
+    def got_bill_but_not_badge_2(self):
+        if self.get_badges() >= 1:
+            if self.check_bill_state() and not self.get_badges() >= 2:
+                return 1
+            else:
+                return 0
+        else:
+            return 0
+
     @abstractmethod
     def get_game_state_reward(self):
         raise NotImplementedError()
@@ -1066,13 +1160,77 @@ class RedGymEnv(Env):
 
     def update_map_progress(self):
         map_idx = self.read_m(0xD35E)
-        self.max_map_progress = max(self.max_map_progress, self.get_map_progress(map_idx))
+        map_progress = self.get_map_progress(map_idx)
+        self.max_map_progress = max(self.max_map_progress, map_progress)
+        if self.step_count % 40 == 0:
+            self.check_and_save_furthest_state(map_idx, map_progress)
 
     def get_map_progress(self, map_idx):
         if map_idx in self.essential_map_locations.keys():
             return self.essential_map_locations[map_idx]
         else:
             return -1
+
+    def check_and_save_furthest_state(self, map_idx, map_progress):
+        if map_idx not in [40, 0]:
+            saved_progress = self.get_saved_furthest_map_progress()
+            if map_progress > saved_progress:
+                self.save_furthest_state(map_idx, map_progress)
+
+    def get_saved_furthest_map_progress(self):
+        saved_state_dir = self.furthest_states_dir
+        os.makedirs(saved_state_dir, exist_ok=True)
+        saved_state_pattern = "furthest_state_env_id_"
+        furthest_progress = -1
+        for filename in os.listdir(saved_state_dir):
+            if filename.startswith(saved_state_pattern) and filename.endswith(".state"):
+                try:
+                    map_progress = int(filename.split(".state")[0].split("_")[-1])
+                    furthest_progress = max(furthest_progress, map_progress)
+                except ValueError:
+                    continue
+        return furthest_progress
+
+    def save_furthest_state(self, map_idx, map_progress):
+        if self.read_m(0xD057) == 0:  # not in battle
+            saved_state_dir = self.furthest_states_dir
+
+            # Save the new furthest state
+            saved_state_file = os.path.join(
+                saved_state_dir,
+                f"furthest_state_env_id_{self.env_id}_map_n_{map_idx}_map_progress_{map_progress}.state",
+            )
+            with open(saved_state_file, "wb") as file:
+                self.pyboy.save_state(file)
+            print(
+                f"State saved for furthest progress: env_id: {self.env_id}, map_idx: {map_idx}, map_progress: {map_progress}"
+            )
+
+    def load_furthest_state(self):
+        map_n = self.read_m(0xD35E)
+        current_map_progress = self.get_map_progress(map_n)
+        furthest_map_progress = self.get_saved_furthest_map_progress()
+
+        if furthest_map_progress > current_map_progress:
+            saved_state_dir = self.furthest_states_dir
+            saved_state_pattern = "furthest_state_env_id_"
+
+            for filename in os.listdir(saved_state_dir):
+                if filename.startswith(saved_state_pattern) and filename.endswith(
+                    f"_map_progress_{furthest_map_progress}.state"
+                ):
+                    furthest_state_file = os.path.join(saved_state_dir, filename)
+                    if os.path.exists(furthest_state_file):
+                        print(
+                            f"env_id_{self.env_id}: map_n={map_n}. Loading furthest state: {filename}"
+                        )
+                        with open(furthest_state_file, "rb") as file:
+                            self.pyboy.load_state(file)
+                        break
+                    else:
+                        print(
+                            f"env_id_{self.env_id}: map_n={map_n}. Furthest state file not found: {furthest_state_file}"
+                        )
 
     def get_items_in_bag(self) -> Iterable[int]:
         num_bag_items = self.read_m("wNumBagItems")

@@ -30,28 +30,40 @@ class BaselineRewardEnv(RedGymEnv):
             # "level": self.get_levels_reward(),
             # "opponent_level": self.max_opponent_level,
             # "death_reward": self.died_count,
-            "badge": self.get_badges() * 5,
+            "badge": self.get_badges() * 5 * self.calculate_event_scaling(),
             # "heal": self.total_healing_rew,
             "explore": sum(self.seen_coords.values()) * 0.012,
             # "explore_maps": np.sum(self.seen_map_ids) * 0.0001,
-            "taught_cut": 4 * int(self.check_if_party_has_cut()),
+            "taught_cut": 4 * int(self.check_if_party_has_cut()) * self.calculate_event_scaling(),
             "cut_coords": sum(self.cut_coords.values()) * 1.0,
             "cut_tiles": sum(self.cut_tiles.values()) * 1.0,
-            "met_bill": 5 * int(self.read_bit(0xD7F1, 0)),
-            "used_cell_separator_on_bill": 5 * int(self.read_bit(0xD7F2, 3)),
-            "ss_ticket": 5 * int(self.read_bit(0xD7F2, 4)),
-            "met_bill_2": 5 * int(self.read_bit(0xD7F2, 5)),
-            "bill_said_use_cell_separator": 5 * int(self.read_bit(0xD7F2, 6)),
-            "left_bills_house_after_helping": 5 * int(self.read_bit(0xD7F2, 7)),
-            "got_hm01": 5 * int(self.read_bit(0xD803, 0)),
-            "rubbed_captains_back": 5 * int(self.read_bit(0xD803, 1)),
+            "met_bill": 5 * int(self.read_bit(0xD7F1, 0)) * self.calculate_event_scaling()
+            if self.get_badges() >= 2
+            else 0,
+            "used_cell_separator_on_bill": 5 * int(self.read_bit(0xD7F2, 3))
+            if self.get_badges() >= 2
+            else 0,
+            "ss_ticket": 5 * int(self.read_bit(0xD7F2, 4)) if self.get_badges() >= 2 else 0,
+            "met_bill_2": 5 * int(self.read_bit(0xD7F2, 5)) if self.get_badges() >= 2 else 0,
+            "bill_said_use_cell_separator": 5 * int(self.read_bit(0xD7F2, 6))
+            if self.get_badges() >= 2
+            else 0,
+            "left_bills_house_after_helping": 5 * int(self.read_bit(0xD7F2, 7))
+            if self.get_badges() >= 2
+            else 0,
+            "got_hm01": 5 * int(self.read_bit(0xD803, 0)) * self.calculate_event_scaling(),
+            "rubbed_captains_back": 5
+            * int(self.read_bit(0xD803, 1))
+            * self.calculate_event_scaling(),
             "start_menu": self.seen_start_menu * 0.01,
             "pokemon_menu": self.seen_pokemon_menu * 0.1,
             "stats_menu": self.seen_stats_menu * 0.1,
             "bag_menu": self.seen_bag_menu * 0.1,
             "action_bag_menu": self.seen_action_bag_menu * 0.1,
             # "blackout_check": self.blackout_check * 0.001,
-            "rival3": self.reward_config["event"] * int(self.read_m(0xD665) == 4),
+            "rival3": self.reward_config["event"]
+            * int(self.read_m(0xD665) == 4)
+            * self.calculate_event_scaling(),
         }
 
     def update_max_event_rew(self):
@@ -237,6 +249,89 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
         }
         return events_status_gym3
 
+    # def get_exp_bonus(self):
+    #     _, _, map_n = ram_map.position(self.pyboy)
+
+    #     if map_n in self.poketower_maps and int(ram_map.read_bit(self.pyboy, 0xD838, 7)) == 0:
+    #         rew = 0
+    #     elif map_n in self.bonus_exploration_reward_maps:
+    #         self.hideout_progress = ram_map_leanke.monitor_hideout_events(self.pyboy)
+    #         self.pokemon_tower_progress = ram_map_leanke.monitor_poke_tower_events(self.pyboy)
+    #         self.silph_progress = ram_map_leanke.monitor_silph_co_events(self.pyboy)
+
+    #         # Objectives on bonus map COMPLETED: disincentivize exploration of: Gym 3 \ Gym 4 \ Rocket Hideout \ Pokemon Tower \ Silph Co
+    #         if (
+    #             (map_n == 92 and self.get_badges() >= 3)
+    #             or (map_n == 134 and self.get_badges() >= 4)
+    #             or (
+    #                 map_n in self.rocket_hideout_maps
+    #                 and self.hideout_progress["beat_rocket_hideout_giovanni"] != 0
+    #             )
+    #             or (
+    #                 map_n in self.pokemon_tower_maps
+    #                 and self.pokemon_tower_progress["rescued_mr_fuji"] != 0
+    #             )
+    #             or (
+    #                 map_n in self.silph_co_maps
+    #                 and self.silph_progress["beat_silph_co_giovanni"] != 0
+    #             )
+    #         ):
+    #             value = 0.01
+    #             rew = value * sum(self.seen_coords.values())
+
+    #         # Objectives on bonus map NOT complete: incentivize exploration of: Gym 3 \ Gym 4 \ Rocket Hideout \ Pokemon Tower \ Silph Co
+    #         elif (
+    #             (map_n == 92 and self.get_badges() < 3)
+    #             or (map_n == 134 and self.get_badges() < 4)
+    #             or (
+    #                 map_n in self.rocket_hideout_maps
+    #                 and self.hideout_progress["beat_rocket_hideout_giovanni"] == 0
+    #             )
+    #             or (
+    #                 map_n in self.pokemon_tower_maps
+    #                 and self.pokemon_tower_progress["rescued_mr_fuji"] == 0
+    #             )
+    #             or (
+    #                 map_n in self.silph_co_maps
+    #                 and self.silph_progress["beat_silph_co_giovanni"] == 0
+    #             )
+    #         ):
+    #             value = 0.04
+    #             rew = value * sum(self.seen_coords.values())
+
+    #         elif map_n in self.route_9:
+    #             if self.route_9_completed:
+    #                 value = 0.01
+    #             else:
+    #                 value = 0.05
+    #             rew = value * sum(self.seen_coords.values())
+
+    #         elif map_n in self.route_10:
+    #             if self.route_10_completed:
+    #                 value = 0.01
+    #             else:
+    #                 value = 0.055
+    #             rew = value * sum(self.seen_coords.values())
+
+    #         elif map_n in self.rock_tunnel:
+    #             if self.rock_tunnel_completed:
+    #                 value = 0.01
+    #             else:
+    #                 value = 0.06
+    #             rew = value * sum(self.seen_coords.values())
+
+    #         # Shouldn't trigger, but it's there in case I missed some states
+    #         else:
+    #             value = 0.03
+    #             rew = value * sum(self.seen_coords.values())
+
+    #     else:
+    #         value = 0.03
+    #         rew = value * sum(self.seen_coords.values())
+
+    #     self.exp_bonus = rew
+    #     return self.exp_bonus
+
     def get_exp_bonus(self):
         _, _, map_n = ram_map.position(self.pyboy)
 
@@ -264,7 +359,8 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
                     and self.silph_progress["beat_silph_co_giovanni"] != 0
                 )
             ):
-                rew = 0.01 * sum(self.seen_coords.values())
+                value = 0.01
+                rew = value * sum(self.seen_coords.values())
 
             # Objectives on bonus map NOT complete: incentivize exploration of: Gym 3 \ Gym 4 \ Rocket Hideout \ Pokemon Tower \ Silph Co
             elif (
@@ -283,32 +379,63 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
                     and self.silph_progress["beat_silph_co_giovanni"] == 0
                 )
             ):
-                rew = 0.04 * sum(self.seen_coords.values())
+                value = 0.04
+                rew = value * sum(self.seen_coords.values())
 
             elif map_n in self.route_9:
                 if self.route_9_completed:
-                    rew = 0.01
+                    value = 0.01
                 else:
-                    rew = 0.05 * sum(self.seen_coords.values())
+                    value = 0.05
+                rew = value * sum(self.seen_coords.values())
 
             elif map_n in self.route_10:
                 if self.route_10_completed:
-                    rew = 0.01
+                    value = 0.01
                 else:
-                    rew = 0.055 * sum(self.seen_coords.values())
+                    value = 0.055
+                rew = value * sum(self.seen_coords.values())
 
             elif map_n in self.rock_tunnel:
                 if self.rock_tunnel_completed:
-                    rew = 0.01
+                    value = 0.01
                 else:
-                    rew = 0.06 * sum(self.seen_coords.values())
+                    value = 0.06
+                rew = value * sum(self.seen_coords.values())
 
             # Shouldn't trigger, but it's there in case I missed some states
             else:
-                rew = 0.03 * sum(self.seen_coords.values())
+                value = 0.03
+                rew = value * sum(self.seen_coords.values())
 
         else:
-            rew = 0.03 * sum(self.seen_coords.values())
+            value = 0.03
+            rew = value * sum(self.seen_coords.values())
 
-        self.exp_bonus = rew
+        # Apply the exploration bonus multiplier
+        # map_progress = self.get_map_progress(map_n)
+        # bonus_multiplier = self.get_exp_bonus_multiplier(map_progress, map_n)
+        self.exp_bonus = rew  # * bonus_multiplier
         return self.exp_bonus
+
+    def get_exp_bonus_multiplier(self, map_progress, map_n):
+        furthest_map_progress = self.get_saved_furthest_map_progress()
+        if map_n not in self.essential_map_locations and furthest_map_progress < 10:
+            return 0.1
+        elif (
+            map_n in self.bonus_exploration_reward_maps
+            or map_n in self.routes_9_and_10_and_rock_tunnel
+        ):
+            return 1.0 + (1 / 3)
+        # map_progress_list = sorted(self.essential_map_locations.values(), reverse=True)
+
+        if map_progress == furthest_map_progress:
+            return 1.0 + (1 / 3)
+        elif map_progress == furthest_map_progress - 1:
+            return 1.0
+        elif map_progress == furthest_map_progress - 2:
+            return 2 / 3
+        elif map_progress == furthest_map_progress - 3:
+            return 1 / 3
+        else:
+            return 0.1

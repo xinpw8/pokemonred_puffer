@@ -7,8 +7,10 @@ debug:
   env:
     headless: False
     stream_wrapper: False
-    init_state: cut
+    init_state: Bulbasaur
     max_steps: 1_000_000
+    disable_wild_encounters: True
+    disable_ai_actions: False
   train:
     device: cpu
     compile: False
@@ -39,15 +41,22 @@ env:
   state_dir: pyboy_states
   init_state: Bulbasaur
   action_freq: 24
-  max_steps: 20480
+  max_steps: 20480 # 20480 # 2048
   save_video: False
   fast_video: False
   frame_stacks: 1
   perfect_ivs: True
   reduce_res: True
   two_bit: True
-  log_frequency: 1000
-  auto_flash: True
+  log_frequency: 10000
+  auto_flash: False
+  disable_wild_encounters: True
+  disable_ai_actions: False
+  furthest_states_dir: saved_states/furthest_states
+  save_each_env_state_dir: saved_states/save_each_env_states
+  save_each_env_state_freq: 50000
+  load_states_on_start: False
+  load_furthest_map_n_on_reset: False
 
 train:
   seed: 1
@@ -85,7 +94,7 @@ train:
   save_checkpoint: False
   checkpoint_interval: 200
   save_overlay: True
-  overlay_interval: 100
+  overlay_interval: 50 # 100
   cpu_offload: True
   pool_kernel: [0]
   load_optimizer_state: False
