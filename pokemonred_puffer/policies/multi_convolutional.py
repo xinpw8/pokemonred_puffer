@@ -52,7 +52,7 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
         self.value_fn = nn.LazyLinear(1)
 
         self.two_bit = env.unwrapped.env.two_bit
-        self.use_fixed_x = env.unwrapped.env.fixed_x
+        # self.use_fixed_x = env.unwrapped.env.fixed_x
 
         self.register_buffer(
             "screen_buckets", torch.tensor(PIXEL_VALUES, dtype=torch.uint8), persistent=False
@@ -75,10 +75,10 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
 
         screen = observations["screen"]
         visited_mask = observations["visited_mask"]
-        if not self.use_fixed_x:
-            global_map = observations["global_map"]
-        else:
-            fixed_x = observations["fixed_x"]
+        # if self.use_fixed_x:
+        #     fixed_x = observations["fixed_x"]
+        # else:
+        #     global_map = observations["global_map"]
 
         restored_shape = (screen.shape[0], screen.shape[1], screen.shape[2] * 4, screen.shape[3])
 
@@ -95,22 +95,22 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
                 .flatten()
                 .int(),
             ).reshape(restored_shape)
-            if not self.use_fixed_x:
-                global_map = torch.index_select(
-                    self.linear_buckets,
-                    0,
-                    ((global_map.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
-                    .flatten()
-                    .int(),
-                ).reshape(restored_shape)
-            else:
-                fixed_x = torch.index_select(
-                    self.linear_buckets,
-                    0,
-                    ((fixed_x.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
-                    .flatten()
-                    .int(),
-                ).reshape(restored_shape)
+            # if self.use_fixed_x:
+            #     fixed_x = torch.index_select(
+            #         self.linear_buckets,
+            #         0,
+            #         ((fixed_x.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
+            #         .flatten()
+            #         .int(),
+            #     ).reshape(restored_shape)
+            # else:
+            #     global_map = torch.index_select(
+            #         self.linear_buckets,
+            #         0,
+            #         ((global_map.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
+            #         .flatten()
+            #         .int(),
+            #     ).reshape(restored_shape)
 
         badges = (observations["badges"] & self.binary_mask) > 0
 
@@ -120,10 +120,10 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
         # else:
         #     print(f'fixed_x shape: {fixed_x.shape}')
 
-        if self.use_fixed_x:
-            image_observation = torch.cat((screen, visited_mask, fixed_x), dim=-1)
-        else:
-            image_observation = torch.cat((screen, visited_mask, global_map), dim=-1)
+        # if self.use_fixed_x:
+        #     image_observation = torch.cat((screen, visited_mask, fixed_x), dim=-1)
+        # else:
+        image_observation = torch.cat((screen, visited_mask), dim=-1)  # global_map), dim=-1)
 
         if self.channels_last:
             image_observation = image_observation.permute(0, 3, 1, 2)

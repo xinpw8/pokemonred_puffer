@@ -13,7 +13,6 @@ import numpy as np
 from gymnasium import Env, spaces
 from pyboy import PyBoy
 from pyboy.utils import WindowEvent
-from skimage.transform import resize
 from . import ram_map
 from . import ram_map_leanke
 from pokemonred_puffer.constants import *
@@ -28,15 +27,25 @@ from pokemonred_puffer.bin.ram_reader.red_ram_debug import *
 
 import pufferlib
 from pokemonred_puffer.global_map import GLOBAL_MAP_SHAPE, local_to_global
+import logging
 
 
-# TODO: Make global map usage a configuration parameter
+# Configure logging
+logging.basicConfig(
+    filename="diagnostics.log",  # Name of the log file
+    filemode="a",  # Append to the file
+    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
+    level=logging.INFO,  # Log level
+)
+
+
 class RedGymEnv(Env):
     env_id = shared_memory.SharedMemory(create=True, size=4)
     lock = Lock()
 
+    logging.info(f"env_{env_id}: Logging initialized.")
+
     def __init__(self, env_config: pufferlib.namespace):
-        # TODO: Dont use pufferlib.namespace. It seems to confuse __init__
         self.video_dir = Path(env_config.video_dir)
         self.session_path = Path(env_config.session_path)
         self.video_path = self.video_dir / self.session_path
@@ -134,9 +143,6 @@ class RedGymEnv(Env):
             "visited_mask": spaces.Box(
                 low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
             ),
-            "fixed_x": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8)
-            if self.use_fixed_x
-            else spaces.Box(low=0, high=0, shape=(0,), dtype=np.uint8),
             "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
             "battle_type": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
             "cut_event": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
@@ -144,19 +150,18 @@ class RedGymEnv(Env):
             "badges": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
         }
 
-        # print(f"obs_space['screen']: {obs_space['screen'].shape}")
-        # print( f"obs_space['visited_mask']: {obs_space['visited_mask'].shape}")
-        # print(f"obs_space['fixed_x']: {obs_space['fixed_x'].shape}")
-        # print(f"obs_space['direction']: {obs_space['direction'].shape}")
-        # print(f'obs_space["battle_type"]: {obs_space["battle_type"].shape}')
-        # print(f'obs_space["cut_event"]: {obs_space["cut_event"].shape}')
-        # print(f'obs_space["cut_in_party"]: {obs_space["cut_in_party"].shape}')
-        # print(f'obs_space["badges"]: {obs_space["badges"].shape}')
+        # if self.use_fixed_x:
+        #     self.screen_memory = defaultdict(
+        #         lambda: np.zeros((255, 255, 1), dtype=np.uint8)
+        #     )
+        #     obs_space["fixed_x"] = spaces.Box(
+        #                 low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
+        #             )
 
-        if not self.use_fixed_x:
-            obs_space["global_map"] = spaces.Box(
-                low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
-            )
+        # if not self.use_fixed_x:
+        #     obs_space["global_map"] = spaces.Box(
+        #         low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
+        #     )
 
         self.observation_space = spaces.Dict(obs_space)
 
@@ -191,6 +196,27 @@ class RedGymEnv(Env):
             RedGymEnv.env_id.buf[1] = (env_id >> 16) & 0xFF
             RedGymEnv.env_id.buf[2] = (env_id >> 8) & 0xFF
             RedGymEnv.env_id.buf[3] = (env_id) & 0xFF
+
+        logging.info(
+            f'env_{self.env_id}: obs_space["screen"]: {obs_space["screen"].shape}, self.env_id: {self.env_id}'
+        )
+        logging.info(
+            f'env_{self.env_id}: obs_space["visited_mask"]: {obs_space["visited_mask"].shape}'
+        )
+        logging.info(
+            f'env_{self.env_id}: obs_space["fixed_x"]: {obs_space["fixed_x"].shape}'
+            if "fixed_x" in obs_space
+            else "Fixed_x not used."
+        )
+        logging.info(f'env_{self.env_id}: obs_space["direction"]: {obs_space["direction"].shape}')
+        logging.info(
+            f'env_{self.env_id}: obs_space["battle_type"]: {obs_space["battle_type"].shape}'
+        )
+        logging.info(f'env_{self.env_id}: obs_space["cut_event"]: {obs_space["cut_event"].shape}')
+        logging.info(
+            f'env_{self.env_id}: obs_space["cut_in_party"]: {obs_space["cut_in_party"].shape}'
+        )
+        logging.info(f'env_{self.env_id}: obs_space["badges"]: {obs_space["badges"].shape}')
 
     def register_hooks(self):
         self.pyboy.hook_register(None, "DisplayStartMenu", self.start_menu_hook, None)
@@ -316,12 +342,13 @@ class RedGymEnv(Env):
                 print(f"No saved states found in {saved_state_dir}")
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
-        options = options or {}
         self.explore_map_dim = 384
+        options = options or {}
         if self.first or options.get("state", None) is not None:
             self.recent_screens = deque()
             self.recent_actions = deque()
             self.init_mem()
+            self.reset_bag_item_vars()
             self.seen_hidden_objs = {}
             self.seen_signs = {}
             if options.get("state", None) is not None:
@@ -359,6 +386,7 @@ class RedGymEnv(Env):
         self.caught_pokemon.fill(0)
         self.moves_obtained.fill(0)
         self.reset_mem()
+        self.reset_bag_item_vars()
         self.cut_explore_map *= 0
         self.update_pokedex()
         self.update_tm_hm_moves_obtained()
@@ -424,6 +452,24 @@ class RedGymEnv(Env):
         self.seen_bag_menu = 0
         self.seen_action_bag_menu = 0
 
+    def reset_bag_item_vars(self):
+        # Reset item-related rewards
+        self.has_lemonade_in_bag = False
+        self.has_fresh_water_in_bag = False
+        self.has_soda_pop_in_bag = False
+        self.has_silph_scope_in_bag = False
+        self.has_lift_key_in_bag = False
+        self.has_pokedoll_in_bag = False
+        self.has_bicycle_in_bag = False
+
+        self.has_lemonade_in_bag_reward = 0
+        self.has_fresh_water_in_bag_reward = 0
+        self.has_soda_pop_in_bag_reward = 0
+        self.has_silph_scope_in_bag_reward = 0
+        self.has_lift_key_in_bag_reward = 0
+        self.has_pokedoll_in_bag_reward = 0
+        self.has_bicycle_in_bag_reward = 0
+
     def fixed_x(self, arr, y, x, window_size):
         height, width, _ = arr.shape
         h_w, w_w = window_size[0], window_size[1]
@@ -447,11 +493,32 @@ class RedGymEnv(Env):
             mode="constant",
         )
 
+    # def fixed_x(self, arr, y, x, window_size):
+    #     height, width, _ = arr.shape
+    #     h_w, w_w = window_size[0] // 2, window_size[1] // 2
+
+    #     y_min = max(0, y - h_w)
+    #     y_max = min(height, y_min + window_size[0])
+    #     x_min = max(0, x - w_w)
+    #     x_max = min(width, x_min + window_size[1])
+
+    #     window = arr[y_min:y_max, x_min:x_max]
+
+    #     pad_top = max(0, y - y_min)
+    #     pad_bottom = max(0, window_size[0] - (y_max - y_min))
+    #     pad_left = max(0, x - x_min)
+    #     pad_right = max(0, window_size[1] - (x_max - x_min))
+
+    #     return np.pad(
+    #         window,
+    #         ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)),
+    #         mode="constant",
+    #     )
+
     def render(self):
         game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
         if self.reduce_res:
             game_pixels_render = game_pixels_render[::2, ::2, :]
-
         player_x, player_y, map_n = self.get_game_coords()
         visited_mask = np.zeros_like(game_pixels_render)
         scale = 2 if self.reduce_res else 1
@@ -479,12 +546,6 @@ class RedGymEnv(Env):
                 game_pixels_render, player_y, player_x, self.observation_space["fixed_x"].shape
             )
 
-        else:
-            global_map = np.expand_dims(
-                255 * resize(self.explore_map, game_pixels_render.shape, anti_aliasing=False),
-                axis=-1,
-            ).astype(np.uint8)
-
         if self.two_bit:
             game_pixels_render = (
                 (
@@ -510,19 +571,6 @@ class RedGymEnv(Env):
                 .astype(np.uint8)
             )
 
-            global_map = (
-                (
-                    np.digitize(
-                        global_map.reshape((-1, 4)),
-                        np.array([0, 64, 128, 255], dtype=np.uint8),
-                        right=True,
-                    ).astype(np.uint8)
-                    << np.array([6, 4, 2, 0], dtype=np.uint8)
-                )
-                .sum(axis=1, dtype=np.uint8)
-                .reshape(game_pixels_render.shape)
-            )
-
         if self.use_fixed_x:
             return {
                 "screen": game_pixels_render,
@@ -533,7 +581,6 @@ class RedGymEnv(Env):
             return {
                 "screen": game_pixels_render,
                 "visited_mask": visited_mask,
-                "global_map": global_map,
             }
 
     def _get_obs(self):
@@ -585,6 +632,29 @@ class RedGymEnv(Env):
         if map_n in [4] and self.seen_rock_tunnel:  # Lavender Town
             self.rock_tunnel_completed = True
 
+    def check_bag_items(self, current_bag_items):
+        if "Lemonade" in current_bag_items:
+            self.has_lemonade_in_bag = True
+            self.has_lemonade_in_bag_reward = 20
+        if "Fresh Water" in current_bag_items:
+            self.has_fresh_water_in_bag = True
+            self.has_fresh_water_in_bag_reward = 20
+        if "Soda Pop" in current_bag_items:
+            self.has_soda_pop_in_bag = True
+            self.has_soda_pop_in_bag_reward = 20
+        if "Silph Scope" in current_bag_items:
+            self.has_silph_scope_in_bag = True
+            self.has_silph_scope_in_bag_reward = 20
+        if "Lift Key" in current_bag_items:
+            self.has_lift_key_in_bag = True
+            self.has_lift_key_in_bag_reward = 20
+        if "Poke Doll" in current_bag_items:
+            self.has_pokedoll_in_bag = True
+            self.has_pokedoll_in_bag_reward = 20
+        if "Bicycle" in current_bag_items:
+            self.has_bicycle_in_bag = True
+            self.has_bicycle_in_bag_reward = 20
+
     def step(self, action):
         if self.save_video and self.step_count == 0:
             self.start_video()
@@ -595,6 +665,13 @@ class RedGymEnv(Env):
 
         # Call nimixx api
         self.api.process_game_states()
+        current_bag_items = self.api.items.get_bag_item_ids()
+        self.check_bag_items(current_bag_items)
+
+        if self._get_obs()["screen"].shape != (72, 20, 1):
+            logging.info(
+                f'env_{self.env_id}: Step observation shape: {self._get_obs()["screen"].shape}'
+            )
 
         self.run_action_on_emulator(action)
         self.update_seen_coords()
@@ -646,6 +723,15 @@ class RedGymEnv(Env):
             if not self.check_if_party_has_cut():
                 self.teach_cut()
             self.cut_if_next()
+
+    # def run_action_on_emulator_step_handler(self, step_handler, action):
+    #     StepHandler.run_action_on_emulator(action)
+
+    #     # TODO: Add support for video recording
+    #     # if save_video and fast_video:
+    #     #     add_video_frame()
+    #     if check_if_party_has_cut(pyboy):
+    #         cut_if_next(pyboy)
 
     def teach_cut(self):
         # find bulba and replace tackle (first skill) with cut

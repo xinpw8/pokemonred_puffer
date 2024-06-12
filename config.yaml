@@ -40,15 +40,15 @@ env:
   video_dir: video
   state_dir: pyboy_states/stock_starting_states
   init_state: Bulbasaur
-  action_freq: 24
+  action_freq: 24 # 24
   max_steps: 20480 # 20480 # 2048
   save_video: False
   fast_video: False
   frame_stacks: 1
   perfect_ivs: True
   reduce_res: True
-  two_bit: False
-  fixed_x: True
+  two_bit: True
+  fixed_x: False
   log_frequency: 10000
   auto_flash: False
   disable_wild_encounters: True
@@ -57,7 +57,7 @@ env:
   save_each_env_state_dir: saved_states/save_each_env_states
   load_states_on_start_dir: saved_states/load_states_on_start
   save_each_env_state_freq: 10000000
-  save_all_env_states_bool: False
+  save_all_env_states_bool: True
   load_states_on_start: False
   load_furthest_map_n_on_reset: False
 
@@ -210,6 +210,14 @@ rewards:
       silph_co_events: 5.0
       beat_silph_co_giovanni: 10.0
       got_poke_flute: 10.0
+      has_lemonade_in_bag: 20.0
+      has_fresh_water_in_bag: 20.0
+      has_soda_pop_in_bag: 20.0
+      has_silph_scope_in_bag: 20.0
+      has_lift_key_in_bag: 20.0
+      has_pokedoll_in_bag: 20.0
+      has_bicycle_in_bag: 20.0
+
 
 
 

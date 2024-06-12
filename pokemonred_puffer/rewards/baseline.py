@@ -257,6 +257,20 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
             * int(ram_map_leanke.monitor_silph_co_events(self.pyboy)["beat_silph_co_giovanni"]),
             "got_poke_flute": self.reward_config.get("got_poke_flute", 10.0)
             * int(self.read_bit(0xD76C, 0)),
+            "has_lemonade_in_bag": self.reward_config.get("has_lemonade_in_bag", 20.0)
+            * int(getattr(self, "has_lemonade_in_bag", False)),
+            "has_fresh_water_in_bag": self.reward_config.get("has_fresh_water_in_bag", 20.0)
+            * int(getattr(self, "has_fresh_water_in_bag", False)),
+            "has_soda_pop_in_bag": self.reward_config.get("has_soda_pop_in_bag", 20.0)
+            * int(getattr(self, "has_soda_pop_in_bag", False)),
+            "has_silph_scope_in_bag": self.reward_config.get("has_silph_scope_in_bag", 20.0)
+            * int(getattr(self, "has_silph_scope_in_bag", False)),
+            "has_lift_key_in_bag": self.reward_config.get("has_lift_key_in_bag", 20.0)
+            * int(getattr(self, "has_lift_key_in_bag", False)),
+            "has_pokedoll_in_bag": self.reward_config.get("has_pokedoll_in_bag", 20.0)
+            * int(getattr(self, "has_pokedoll_in_bag", False)),
+            "has_bicycle_in_bag": self.reward_config.get("has_bicycle_in_bag", 20.0)
+            * int(getattr(self, "has_bicycle_in_bag", False)),
         }
         return rewards
 
@@ -359,25 +373,3 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
         # bonus_multiplier = self.get_exp_bonus_multiplier(map_progress, map_n)
         self.exp_bonus = rew  # * bonus_multiplier
         return self.exp_bonus
-
-    # def get_exp_bonus_multiplier(self, map_progress, map_n):
-    #     furthest_map_progress = self.get_saved_furthest_map_progress()
-    #     if map_n not in self.essential_map_locations and furthest_map_progress < 10:
-    #         return 0.1
-    #     elif (
-    #         map_n in self.bonus_exploration_reward_maps
-    #         or map_n in self.routes_9_and_10_and_rock_tunnel
-    #     ):
-    #         return 1.0 + (1 / 3)
-    #     # map_progress_list = sorted(self.essential_map_locations.values(), reverse=True)
-
-    #     if map_progress == furthest_map_progress:
-    #         return 1.0 + (1 / 3)
-    #     elif map_progress == furthest_map_progress - 1:
-    #         return 1.0
-    #     elif map_progress == furthest_map_progress - 2:
-    #         return 2 / 3
-    #     elif map_progress == furthest_map_progress - 3:
-    #         return 1 / 3
-    #     else:
-    #         return 0.1

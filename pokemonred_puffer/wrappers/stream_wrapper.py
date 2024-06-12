@@ -149,6 +149,6 @@ class StreamWrapper(gym.Wrapper):
             self.websocket = None
 
     def reset(self, *args, **kwargs):
-        print(f"Wrapper stream_wrapper.py reset called with kwargs: {kwargs}")
-        logging.debug("Wrapper stream_wrapper.py reset called with kwargs: %s", kwargs)
+        # print(f"Wrapper stream_wrapper.py reset called with kwargs: {kwargs}")
+        # logging.debug("Wrapper stream_wrapper.py reset called with kwargs: %s", kwargs)
         return self.env.reset(*args, **kwargs)
