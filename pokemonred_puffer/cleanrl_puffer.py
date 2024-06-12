@@ -166,7 +166,6 @@ def print_dashboard(stats, init_performance, performance):
     time.sleep(1 / 20)
 
 
-# TODO: Make this an unfrozen dataclass with a post_init?
 class CleanPuffeRL:
     def __init__(
         self,
@@ -191,8 +190,8 @@ class CleanPuffeRL:
             self.config = pufferlib.args.CleanPuffeRL()
 
         self.exp_name = exp_name
-        if exp_name is None:
-            exp_name = str(uuid.uuid4())[:8]
+        if self.exp_name is None:
+            self.exp_name = str(uuid.uuid4())[:8]
 
         self.wandb = None
         if track:
@@ -206,6 +205,10 @@ class CleanPuffeRL:
         self.total_agent_steps = 0
 
         self.device = config.device
+
+        # Ensure that data_dir is set
+        if not hasattr(config, "data_dir") or config.data_dir is None:
+            config.data_dir = "./data"
 
         # Create environments, agent, and optimizer
         init_profiler = pufferlib.utils.Profiler(memory=True)
@@ -233,14 +236,21 @@ class CleanPuffeRL:
 
         # If data_dir is provided, load the resume state
         resume_state = {}
-        path = pathlib.Path(config.data_dir) / exp_name
+        path = pathlib.Path(config.data_dir) / self.exp_name
+        print(f"Looking for checkpoints in: {path}")
+
         trainer_path = path / "trainer_state.pt"
+        print(f"Trainer path: {trainer_path}")
+
         if trainer_path.exists():
+            print("Found trainer state, loading...")
             resume_state = torch.load(trainer_path)
 
             model_version = str(resume_state["update"]).zfill(6)
             model_filename = f"model_{model_version}_state.pth"
             model_path = path / model_filename
+            print(f"Model path: {model_path}")
+
             if model_path.exists():
                 self.agent.load_state_dict(torch.load(model_path, map_location=self.device))
                 print(
@@ -248,9 +258,9 @@ class CleanPuffeRL:
                     f'with policy {resume_state["model_name"]}'
                 )
             else:
-                print("No checkpoint found. Starting fresh.")
+                print(f"Model checkpoint {model_path} not found. Starting fresh.")
         else:
-            print("No checkpoint found. Starting fresh.")
+            print(f"Trainer state checkpoint {trainer_path} not found. Starting fresh.")
 
         self.global_step = resume_state.get("global_step", 0)
         self.agent_step = resume_state.get("agent_step", 0)

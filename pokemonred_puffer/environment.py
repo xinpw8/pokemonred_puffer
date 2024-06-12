@@ -15,153 +15,19 @@ from pyboy import PyBoy
 from pyboy.utils import WindowEvent
 from skimage.transform import resize
 from . import ram_map
+from . import ram_map_leanke
+from pokemonred_puffer.constants import *
+from pokemonred_puffer.bin.ram_reader.red_ram_api import *
+from pokemonred_puffer.bin.ram_reader.red_memory_battle import *
+from pokemonred_puffer.bin.ram_reader.red_memory_env import *
+from pokemonred_puffer.bin.ram_reader.red_memory_items import *
+from pokemonred_puffer.bin.ram_reader.red_memory_map import *
+from pokemonred_puffer.bin.ram_reader.red_memory_menus import *
+from pokemonred_puffer.bin.ram_reader.red_memory_player import *
+from pokemonred_puffer.bin.ram_reader.red_ram_debug import *
 
 import pufferlib
 from pokemonred_puffer.global_map import GLOBAL_MAP_SHAPE, local_to_global
-
-PIXEL_VALUES = np.array([0, 85, 153, 255], dtype=np.uint8)
-
-EVENT_FLAGS_START = 0xD747
-EVENTS_FLAGS_LENGTH = 320
-MUSEUM_TICKET = (0xD754, 0)
-
-VISITED_MASK_SHAPE = (144 // 16, 160 // 16, 1)
-
-TM_HM_MOVES = set(
-    [
-        5,  # Mega punch
-        0xD,  # Razor wind
-        0xE,  # Swords dance
-        0x12,  # Whirlwind
-        0x19,  # Mega kick
-        0x5C,  # Toxic
-        0x20,  # Horn drill
-        0x22,  # Body slam
-        0x24,  # Take down
-        0x26,  # Double edge
-        0x3D,  # Bubble beam
-        0x37,  # Water gun
-        0x3A,  # Ice beam
-        0x3B,  # Blizzard
-        0x3F,  # Hyper beam
-        0x06,  # Pay day
-        0x42,  # Submission
-        0x44,  # Counter
-        0x45,  # Seismic toss
-        0x63,  # Rage
-        0x48,  # Mega drain
-        0x4C,  # Solar beam
-        0x52,  # Dragon rage
-        0x55,  # Thunderbolt
-        0x57,  # Thunder
-        0x59,  # Earthquake
-        0x5A,  # Fissure
-        0x5B,  # Dig
-        0x5E,  # Psychic
-        0x64,  # Teleport
-        0x66,  # Mimic
-        0x68,  # Double team
-        0x73,  # Reflect
-        0x75,  # Bide
-        0x76,  # Metronome
-        0x78,  # Selfdestruct
-        0x79,  # Egg bomb
-        0x7E,  # Fire blast
-        0x81,  # Swift
-        0x82,  # Skull bash
-        0x87,  # Softboiled
-        0x8A,  # Dream eater
-        0x8F,  # Sky attack
-        0x9C,  # Rest
-        0x56,  # Thunder wave
-        0x95,  # Psywave
-        0x99,  # Explosion
-        0x9D,  # Rock slide
-        0xA1,  # Tri attack
-        0xA4,  # Substitute
-        0x0F,  # Cut
-        0x13,  # Fly
-        0x39,  # Surf
-        0x46,  # Strength
-        0x94,  # Flash
-    ]
-)
-
-HM_ITEM_IDS = set([0xC4, 0xC5, 0xC6, 0xC7, 0xC8])
-
-RESET_MAP_IDS = set(
-    [
-        0x0,  # Pallet Town
-        0x1,  # Viridian City
-        0x2,  # Pewter City
-        0x3,  # Cerulean City
-        0x4,  # Lavender Town
-        0x5,  # Vermilion City
-        0x6,  # Celadon City
-        0x7,  # Fuchsia City
-        0x8,  # Cinnabar Island
-        0x9,  # Indigo Plateau
-        0xA,  # Saffron City
-        0xF,  # Route 4 (Mt Moon)
-        0x10,  # Route 10 (Rock Tunnel)
-        0xE9,  # Silph Co 9F (Heal station)
-    ]
-)
-
-CUT_SPECIES_IDS = {
-    0x99,
-    0x09,
-    0x9A,
-    0xB0,
-    0xB2,
-    0xB4,
-    0x72,
-    0x60,
-    0x61,
-    0xB9,
-    0xBA,
-    0xBB,
-    0x6D,
-    0x2E,
-    0xBC,
-    0xBD,
-    0xBE,
-    0x18,
-    0x9B,
-    0x40,
-    0x4E,
-    0x8A,
-    0x0B,
-    0x1E,
-    0x1A,
-    0x1D,
-    0x5B,
-    0x15,
-}
-
-VALID_ACTIONS = [
-    WindowEvent.PRESS_ARROW_DOWN,
-    WindowEvent.PRESS_ARROW_LEFT,
-    WindowEvent.PRESS_ARROW_RIGHT,
-    WindowEvent.PRESS_ARROW_UP,
-    WindowEvent.PRESS_BUTTON_A,
-    WindowEvent.PRESS_BUTTON_B,
-    WindowEvent.PRESS_BUTTON_START,
-]
-
-VALID_RELEASE_ACTIONS = [
-    WindowEvent.RELEASE_ARROW_DOWN,
-    WindowEvent.RELEASE_ARROW_LEFT,
-    WindowEvent.RELEASE_ARROW_RIGHT,
-    WindowEvent.RELEASE_ARROW_UP,
-    WindowEvent.RELEASE_BUTTON_A,
-    WindowEvent.RELEASE_BUTTON_B,
-    WindowEvent.RELEASE_BUTTON_START,
-]
-
-VALID_ACTIONS_STR = ["down", "left", "right", "up", "a", "b", "start"]
-
-ACTION_SPACE = spaces.Discrete(len(VALID_ACTIONS))
 
 
 # TODO: Make global map usage a configuration parameter
@@ -192,16 +58,19 @@ class RedGymEnv(Env):
         self.two_bit = env_config.two_bit
         self.auto_flash = env_config.auto_flash
         self.load_states_on_start = env_config.load_states_on_start
+        self.load_states_on_start_dir = env_config.load_states_on_start_dir
         self.furthest_states_dir = env_config.furthest_states_dir
         self.save_each_env_state_dir = env_config.save_each_env_state_dir
         self.load_furthest_map_n_on_reset = env_config.load_furthest_map_n_on_reset
         self.disable_wild_encounters = env_config.disable_wild_encounters
         self.disable_ai_actions = env_config.disable_ai_actions
         self.save_each_env_state_freq = env_config.save_each_env_state_freq
+        self.save_all_env_states_bool = env_config.save_all_env_states_bool
+        self.use_fixed_x = env_config.fixed_x
         self.action_space = ACTION_SPACE
         self.levels = 0
         self.state_already_saved = False
-        self.rocket_hideout_maps = [199, 200, 201, 202, 203]
+        self.rocket_hideout_maps = [135, 199, 200, 201, 202, 203]  # including game corner
         self.poketower_maps = [142, 143, 144, 145, 146, 147, 148]
         self.silph_co_maps = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
         self.pokemon_tower_maps = [142, 143, 144, 145, 146, 147, 148]
@@ -260,30 +129,36 @@ class RedGymEnv(Env):
             v: i for i, v in enumerate([40, 0, 12, 1, 13, 51, 2, 54, 14, 59, 60, 61, 15, 3, 65])
         }
 
-        self.observation_space = spaces.Dict(
-            {
-                "screen": spaces.Box(
-                    low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
-                ),
-                "visited_mask": spaces.Box(
-                    low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
-                ),
-                "global_map": spaces.Box(
-                    low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
-                ),
-                # Discrete is more apt, but pufferlib is slower at processing Discrete
-                "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
-                # "reset_map_id": spaces.Box(low=0, high=0xF7, shape=(1,), dtype=np.uint8),
-                "battle_type": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
-                "cut_event": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
-                "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
-                # "x": spaces.Box(low=0, high=255, shape=(1,), dtype=np.u`int8),
-                # "y": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
-                # "map_id": spaces.Box(low=0, high=0xF7, shape=(1,), dtype=np.uint8),
-                # "badges": spaces.Box(low=0, high=np.iinfo(np.uint16).max, shape=(1,), dtype=np.uint16),
-                "badges": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
-            }
-        )
+        obs_space = {
+            "screen": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
+            "visited_mask": spaces.Box(
+                low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
+            ),
+            "fixed_x": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8)
+            if self.use_fixed_x
+            else spaces.Box(low=0, high=0, shape=(0,), dtype=np.uint8),
+            "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
+            "battle_type": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
+            "cut_event": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+            "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+            "badges": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
+        }
+
+        # print(f"obs_space['screen']: {obs_space['screen'].shape}")
+        # print( f"obs_space['visited_mask']: {obs_space['visited_mask'].shape}")
+        # print(f"obs_space['fixed_x']: {obs_space['fixed_x'].shape}")
+        # print(f"obs_space['direction']: {obs_space['direction'].shape}")
+        # print(f'obs_space["battle_type"]: {obs_space["battle_type"].shape}')
+        # print(f'obs_space["cut_event"]: {obs_space["cut_event"].shape}')
+        # print(f'obs_space["cut_in_party"]: {obs_space["cut_in_party"].shape}')
+        # print(f'obs_space["badges"]: {obs_space["badges"].shape}')
+
+        if not self.use_fixed_x:
+            obs_space["global_map"] = spaces.Box(
+                low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
+            )
+
+        self.observation_space = spaces.Dict(obs_space)
 
         self.pyboy = PyBoy(
             env_config.gb_path,
@@ -297,6 +172,10 @@ class RedGymEnv(Env):
         if not self.headless:
             self.pyboy.set_emulation_speed(6)
         self.screen = self.pyboy.screen
+
+        # Initialize nimxx API
+        # https://github.com/stangerm2/PokemonRedExperiments/tree/feature/rewrite_red_env/bin
+        self.api = Game(self.pyboy)
 
         self.first = True
         with RedGymEnv.lock:
@@ -343,6 +222,44 @@ class RedGymEnv(Env):
                 self.disable_wild_encounter_hook,
                 None,
             )
+        self.pyboy.hook_register(
+            None, "AddItemToInventory_.checkIfInventoryFull", self.inventory_not_full, None
+        )
+
+    def inventory_not_full(self, *args, **kwargs):
+        len_items = self.api.items.get_bag_item_count()
+        items = self.api.items.get_bag_item_ids()
+        # print(f"Initial bag items: {items}")
+        # print(f"Initial item count: {len_items}")
+
+        preserved_items = []
+        for i in range(len(items) - 1, -1, -1):
+            if items[i] in ALL_GOOD_ITEMS_STR:
+                preserved_items.append(items[i])
+                len_items -= 1
+            if len(preserved_items) >= 20:
+                break
+
+        # print(f"Preserved items: {preserved_items}")
+        # print(f"Adjusted item count: {len_items}")
+
+        self.pyboy.memory[self.pyboy.symbol_lookup("wNumBagItems")[1]] = len_items
+
+        # Add the preserved items back if necessary
+        # Assuming there's a method to add items back, e.g., self.api.items.add_item(item)
+        for item in reversed(preserved_items):
+            self.api.items.add_item(item)
+            # print(f"Re-added item: {item}")
+
+        # Ensure there's still room for one more item
+        final_len_items = self.api.items.get_bag_item_count()
+        if final_len_items >= 20:
+            self.pyboy.memory[self.pyboy.symbol_lookup("wNumBagItems")[1]] = 19
+
+        # print(f"Final item count: {self.api.items.get_bag_item_count()}")
+
+    def full_item_hook(self, *args, **kwargs):
+        self.pyboy.memory[self.pyboy.symbol_lookup("wNumBagItems")[1]] = 15
 
     def update_state(self, state: bytes):
         self.reset(seed=random.randint(0, 10), options={"state": state})
@@ -365,7 +282,12 @@ class RedGymEnv(Env):
 
     def load_all_states(self):
         # Define the directory where the saved state is stored
-        saved_state_dir = self.save_each_env_state_dir
+        saved_state_dir = (
+            self.load_states_on_start_dir
+            if self.load_states_on_start_dir
+            else self.save_each_env_state_dir
+        )
+        print(f"saved_state_dir: {saved_state_dir}")
         if not os.path.exists(saved_state_dir):
             os.makedirs(saved_state_dir, exist_ok=True)
         # Try to load the state for the current env_id
@@ -394,15 +316,12 @@ class RedGymEnv(Env):
                 print(f"No saved states found in {saved_state_dir}")
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
-        # restart game, skipping credits
         options = options or {}
-
         self.explore_map_dim = 384
         if self.first or options.get("state", None) is not None:
             self.recent_screens = deque()
             self.recent_actions = deque()
             self.init_mem()
-            # We only init seen hidden objs once cause they can only be found once!
             self.seen_hidden_objs = {}
             self.seen_signs = {}
             if options.get("state", None) is not None:
@@ -424,10 +343,6 @@ class RedGymEnv(Env):
             self.caught_pokemon = np.zeros(152, dtype=np.uint8)
             self.moves_obtained = np.zeros(0xA5, dtype=np.uint8)
             self.pokecenters = np.zeros(252, dtype=np.uint8)
-            # lazy random seed setting
-            # if not seed:
-            #     seed = random.randint(0, 4096)
-            #  self.pyboy.tick(seed, render=False)
         else:
             self.reset_count += 1
 
@@ -444,9 +359,7 @@ class RedGymEnv(Env):
         self.caught_pokemon.fill(0)
         self.moves_obtained.fill(0)
         self.reset_mem()
-
         self.cut_explore_map *= 0
-
         self.update_pokedex()
         self.update_tm_hm_moves_obtained()
         self.taught_cut = self.check_if_party_has_cut()
@@ -469,9 +382,7 @@ class RedGymEnv(Env):
         self.exp_bonus = 0
 
         self.current_event_flags_set = {}
-
         self.action_hist = np.zeros(len(VALID_ACTIONS))
-
         self.max_map_progress = 0
         self.progress_reward = self.get_game_state_reward()
         self.total_reward = sum([val for _, val in self.progress_reward.items()])
@@ -513,50 +424,40 @@ class RedGymEnv(Env):
         self.seen_bag_menu = 0
         self.seen_action_bag_menu = 0
 
-    def render(self):
-        # (144, 160, 3)
-        game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
+    def fixed_x(self, arr, y, x, window_size):
+        height, width, _ = arr.shape
+        h_w, w_w = window_size[0], window_size[1]
+        h_w, w_w = window_size[0] // 2, window_size[1] // 2
 
+        y_min = max(0, y - h_w)
+        y_max = min(height, y + h_w + (window_size[0] % 2))
+        x_min = max(0, x - w_w)
+        x_max = min(width, x + w_w + (window_size[1] % 2))
+
+        window = arr[y_min:y_max, x_min:x_max]
+
+        pad_top = h_w - (y - y_min)
+        pad_bottom = h_w + (window_size[0] % 2) - 1 - (y_max - y - 1)
+        pad_left = w_w - (x - x_min)
+        pad_right = w_w + (window_size[1] % 2) - 1 - (x_max - x - 1)
+
+        return np.pad(
+            window,
+            ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)),
+            mode="constant",
+        )
+
+    def render(self):
+        game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
         if self.reduce_res:
             game_pixels_render = game_pixels_render[::2, ::2, :]
-            # game_pixels_render = skimage.measure.block_reduce(game_pixels_render, (2, 2, 1), np.min)
 
-        # place an overlay on top of the screen greying out places we haven't visited
-        # first get our location
         player_x, player_y, map_n = self.get_game_coords()
-
-        # player is centered at 68, 72 in pixel units
-        # 68 -> player y, 72 -> player x
-        # guess we want to attempt to map the pixels to player units or vice versa
-        # Experimentally determined magic numbers below. Beware
-        # visited_mask = np.zeros(VISITED_MASK_SHAPE, dtype=np.float32)
         visited_mask = np.zeros_like(game_pixels_render)
-        """
-        if self.taught_cut:
-            cut_mask = np.zeros_like(game_pixels_render)
-        else:
-            cut_mask = np.random.randint(0, 255, game_pixels_render.shape, dtype=np.uint8)
-        """
-        # If not in battle, set the visited mask. There's no reason to process it when in battle
         scale = 2 if self.reduce_res else 1
         if self.read_m(0xD057) == 0:
             for y in range(-72 // 16, 72 // 16):
                 for x in range(-80 // 16, 80 // 16):
-                    # y-y1 = m (x-x1)
-                    # map [(0,0),(1,1)] -> [(0,.5),(1,1)] (cause we dont wnat it to be fully black)
-                    # y = 1/2 x + .5
-                    # current location tiles - player_y*8, player_x*8
-                    """
-                    visited_mask[y, x, 0] = self.seen_coords.get(
-                        (
-                            player_x + x + 1,
-                            player_y + y + 1,
-                            map_n,
-                        ),
-                        0.15,
-                    )
-                    """
-
                     visited_mask[
                         (16 * y + 76) // scale : (16 * y + 16 + 76) // scale,
                         (16 * x + 80) // scale : (16 * x + 16 + 80) // scale,
@@ -572,41 +473,17 @@ class RedGymEnv(Env):
                         )
                         * 255
                     )
-                    """
-                    if self.taught_cut:
-                        cut_mask[
-                            16 * y + 76 : 16 * y + 16 + 76,
-                            16 * x + 80 : 16 * x + 16 + 80,
-                            :,
-                        ] = int(
-                            255
-                            * (
-                                self.cut_coords.get(
-                                    (
-                                        player_x + x + 1,
-                                        player_y + y + 1,
-                                        map_n,
-                                    ),
-                                    0,
-                                )
-                            )
-                        )
-                        """
-        """
-        gr, gc = local_to_global(player_y, player_x, map_n)
-        visited_mask = (
-            255
-            * np.repeat(
-                np.repeat(self.seen_global_coords[gr - 4 : gr + 5, gc - 4 : gc + 6], 16, 0), 16, -1
-            )
-        ).astype(np.uint8)
-        visited_mask = np.expand_dims(visited_mask, -1)
-        """
 
-        global_map = np.expand_dims(
-            255 * resize(self.explore_map, game_pixels_render.shape, anti_aliasing=False),
-            axis=-1,
-        ).astype(np.uint8)
+        if self.use_fixed_x:
+            fixed_window = self.fixed_x(
+                game_pixels_render, player_y, player_x, self.observation_space["fixed_x"].shape
+            )
+
+        else:
+            global_map = np.expand_dims(
+                255 * resize(self.explore_map, game_pixels_render.shape, anti_aliasing=False),
+                axis=-1,
+            ).astype(np.uint8)
 
         if self.two_bit:
             game_pixels_render = (
@@ -632,6 +509,7 @@ class RedGymEnv(Env):
                 .reshape(game_pixels_render.shape)
                 .astype(np.uint8)
             )
+
             global_map = (
                 (
                     np.digitize(
@@ -645,11 +523,18 @@ class RedGymEnv(Env):
                 .reshape(game_pixels_render.shape)
             )
 
-        return {
-            "screen": game_pixels_render,
-            "visited_mask": visited_mask,
-            "global_map": global_map,
-        }
+        if self.use_fixed_x:
+            return {
+                "screen": game_pixels_render,
+                "visited_mask": visited_mask,
+                "fixed_x": fixed_window,
+            }
+        else:
+            return {
+                "screen": game_pixels_render,
+                "visited_mask": visited_mask,
+                "global_map": global_map,
+            }
 
     def _get_obs(self):
         # player_x, player_y, map_n = self.get_game_coords()
@@ -684,7 +569,7 @@ class RedGymEnv(Env):
         return False
 
     def visited_maps(self):
-        _, _, map_n = ram_map.position(self.game)
+        _, _, map_n = ram_map.position(self.pyboy)
         if map_n in self.routes_9_and_10_and_rock_tunnel:
             self.seen_routes_9_and_10_and_rock_tunnel = True
         if map_n in self.route_9:
@@ -707,6 +592,9 @@ class RedGymEnv(Env):
         _, wMapPalOffset = self.pyboy.symbol_lookup("wMapPalOffset")
         if self.auto_flash and self.pyboy.memory[wMapPalOffset] == 6:
             self.pyboy.memory[wMapPalOffset] = 0
+
+        # Call nimixx api
+        self.api.process_game_states()
 
         self.run_action_on_emulator(action)
         self.update_seen_coords()
@@ -734,16 +622,14 @@ class RedGymEnv(Env):
             info = info | self.agent_stats(action)
 
         global_step_count = self.get_global_steps()
-        if global_step_count % self.save_each_env_state_freq == 0:
+
+        if self.save_all_env_states_bool and global_step_count % self.save_each_env_state_freq == 0:
             self.save_all_states()
 
         obs = self._get_obs()
 
         self.step_count += 1
-        reset = (
-            self.step_count >= self.max_steps  # or
-            # self.caught_pokemon[6] == 1  # squirtle
-        )
+        reset = self.step_count >= self.max_steps
 
         return obs, new_reward, reset, False, info
 
@@ -982,6 +868,33 @@ class RedGymEnv(Env):
                 "reset_count": self.reset_count,
                 "blackout_count": self.blackout_count,
                 "pokecenter": np.sum(self.pokecenters),
+                "found_rocket_hideout": ram_map_leanke.monitor_hideout_events(self.pyboy)[
+                    "found_rocket_hideout"
+                ],
+                "beat_rocket_hideout_giovanni": ram_map_leanke.monitor_hideout_events(self.pyboy)[
+                    "beat_rocket_hideout_giovanni"
+                ],
+                "beat_gym_4_leader_erika": ram_map_leanke.monitor_gym4_events(self.pyboy)["four"],
+                "beat_gym_5_leader_koga": ram_map_leanke.monitor_gym5_events(self.pyboy)["five"],
+                "beat_gym_6_leader_sabrina": ram_map_leanke.monitor_gym6_events(self.pyboy)["six"],
+                "beat_gym_7_leader_blaine": ram_map_leanke.monitor_gym7_events(self.pyboy)["seven"],
+                "beat_gym_8_leader_giovanni": ram_map_leanke.monitor_gym8_events(self.pyboy)[
+                    "eight"
+                ],
+                "defeated_fighting_dojo": ram_map_leanke.monitor_dojo_events(self.pyboy)[
+                    "defeated_fighting_dojo"
+                ],
+                "beat_karate_master": ram_map_leanke.monitor_dojo_events(self.pyboy)[
+                    "beat_karate_master"
+                ],
+                "got_hitmonlee": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonlee"],
+                "got_hitmonchan": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonchan"],
+                "beat_rocket_hideout_giovanni": ram_map_leanke.monitor_hideout_events(self.pyboy)[
+                    "beat_rocket_hideout_giovanni"
+                ],
+                "rescued_mr_fuji": int(self.read_bit(0xD7E0, 7)),
+                "beat_silph_co_giovanni": int(self.read_bit(0xD7E1, 0)),
+                "got_poke_flute": int(self.read_bit(0xD76C, 0)),
             },
             "reward": self.get_game_state_reward(),
             "reward/reward_sum": sum(self.get_game_state_reward().values()),
@@ -1029,10 +942,10 @@ class RedGymEnv(Env):
 
     def update_seen_coords(self):
         x_pos, y_pos, map_n = self.get_game_coords()
-        self.seen_coords[(x_pos, y_pos, map_n)] = 1
-        self.explore_map[local_to_global(y_pos, x_pos, map_n)] = 1
-        # self.seen_global_coords[local_to_global(y_pos, x_pos, map_n)] = 1
-        self.seen_map_ids[map_n] = 1
+        if 0 <= x_pos < GLOBAL_MAP_SHAPE[1] and 0 <= y_pos < GLOBAL_MAP_SHAPE[0]:
+            self.seen_coords[(x_pos, y_pos, map_n)] = 1
+            self.explore_map[local_to_global(y_pos, x_pos, map_n)] = 1
+            self.seen_map_ids[map_n] = 1
 
     def get_explore_map(self):
         explore_map = np.zeros(GLOBAL_MAP_SHAPE)
@@ -1265,4 +1178,4 @@ class RedGymEnv(Env):
         )
 
     def get_global_steps(self):
-        return self.step_count + self.reset_count * self.max_steps
+        return self.step_count + max(self.reset_count, 1) * self.max_steps

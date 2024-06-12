@@ -8,8 +8,6 @@ from pokemonred_puffer.environment import PIXEL_VALUES
 
 unpack_batched_obs = torch.compiler.disable(unpack_batched_obs)
 
-# Because torch.nn.functional.one_hot cannot be traced by torch as of 2.2.0
-
 
 def one_hot(tensor, num_classes):
     index = torch.arange(0, num_classes, device=tensor.device)
@@ -54,6 +52,7 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
         self.value_fn = nn.LazyLinear(1)
 
         self.two_bit = env.unwrapped.env.two_bit
+        self.use_fixed_x = env.unwrapped.env.fixed_x
 
         self.register_buffer(
             "screen_buckets", torch.tensor(PIXEL_VALUES, dtype=torch.uint8), persistent=False
@@ -76,7 +75,11 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
 
         screen = observations["screen"]
         visited_mask = observations["visited_mask"]
-        global_map = observations["global_map"]
+        if not self.use_fixed_x:
+            global_map = observations["global_map"]
+        else:
+            fixed_x = observations["fixed_x"]
+
         restored_shape = (screen.shape[0], screen.shape[1], screen.shape[2] * 4, screen.shape[3])
 
         if self.two_bit:
@@ -92,34 +95,52 @@ class MultiConvolutionalPolicy(pufferlib.models.Policy):
                 .flatten()
                 .int(),
             ).reshape(restored_shape)
-            global_map = torch.index_select(
-                self.linear_buckets,
-                0,
-                ((global_map.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
-                .flatten()
-                .int(),
-            ).reshape(restored_shape)
-        # > 0 doesn't risk a type conversion
+            if not self.use_fixed_x:
+                global_map = torch.index_select(
+                    self.linear_buckets,
+                    0,
+                    ((global_map.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
+                    .flatten()
+                    .int(),
+                ).reshape(restored_shape)
+            else:
+                fixed_x = torch.index_select(
+                    self.linear_buckets,
+                    0,
+                    ((fixed_x.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
+                    .flatten()
+                    .int(),
+                ).reshape(restored_shape)
+
         badges = (observations["badges"] & self.binary_mask) > 0
 
-        image_observation = torch.cat((screen, visited_mask, global_map), dim=-1)
+        # print(f'screen shape: {screen.shape}, visited mask shape: {visited_mask.shape}')
+        # if not self.use_fixed_x:
+        #     print(f'global_map shape: {global_map.shape}')
+        # else:
+        #     print(f'fixed_x shape: {fixed_x.shape}')
+
+        if self.use_fixed_x:
+            image_observation = torch.cat((screen, visited_mask, fixed_x), dim=-1)
+        else:
+            image_observation = torch.cat((screen, visited_mask, global_map), dim=-1)
+
         if self.channels_last:
             image_observation = image_observation.permute(0, 3, 1, 2)
         if self.downsample > 1:
             image_observation = image_observation[:, :, :: self.downsample, :: self.downsample]
+
+        # print(f'Image observation shape: {image_observation.shape}')
+        # print(f'Image observation size: {image_observation.size()}')
 
         return self.encode_linear(
             torch.cat(
                 (
                     (self.screen_network(image_observation.float() / 255.0).squeeze(1)),
                     one_hot(observations["direction"].long(), 4).float().squeeze(1),
-                    # one_hot(observations["reset_map_id"].long(), 0xF7).float().squeeze(1),
                     one_hot(observations["battle_type"].long(), 4).float().squeeze(1),
                     observations["cut_event"].float(),
                     observations["cut_in_party"].float(),
-                    # observations["x"].float(),
-                    # observations["y"].float(),
-                    # one_hot(observations["map_id"].long(), 0xF7).float().squeeze(1),
                     badges.float().squeeze(1),
                 ),
                 dim=-1,

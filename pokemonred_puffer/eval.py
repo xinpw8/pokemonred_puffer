@@ -17,6 +17,9 @@ def make_pokemon_red_overlay(counts: np.ndarray):
     scaled = np.mean(counts, axis=0) / np.max(counts)
     nonzero = np.where(scaled > 0, 1, 0)
     # scaled = np.clip(counts, 0, 1000) / 1000.0
+    # print(f'scaled size and shape: {scaled.size}, {scaled.shape}')
+    # print(f'nonzero size and shape: {nonzero.size}, {nonzero.shape}')
+    # print(f'counts size and shape: {counts.size}, {counts.shape}')
 
     # Convert counts to hue map
     hsv = np.stack([2 * (1 - scaled) / 3, nonzero, nonzero], axis=-1)
