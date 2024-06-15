@@ -348,7 +348,7 @@ class RedGymEnv(Env):
             self.recent_screens = deque()
             self.recent_actions = deque()
             self.init_mem()
-            self.reset_bag_item_vars()
+            self.reset_bag_item_rewards()
             self.seen_hidden_objs = {}
             self.seen_signs = {}
             if options.get("state", None) is not None:
@@ -462,6 +462,15 @@ class RedGymEnv(Env):
         self.has_pokedoll_in_bag = False
         self.has_bicycle_in_bag = False
 
+        self.has_lemonade_in_bag_reward = 0
+        self.has_fresh_water_in_bag_reward = 0
+        self.has_soda_pop_in_bag_reward = 0
+        self.has_silph_scope_in_bag_reward = 0
+        self.has_lift_key_in_bag_reward = 0
+        self.has_pokedoll_in_bag_reward = 0
+        self.has_bicycle_in_bag_reward = 0
+        
+    def reset_bag_item_rewards(self):        
         self.has_lemonade_in_bag_reward = 0
         self.has_fresh_water_in_bag_reward = 0
         self.has_soda_pop_in_bag_reward = 0
@@ -655,6 +664,18 @@ class RedGymEnv(Env):
             self.has_bicycle_in_bag = True
             self.has_bicycle_in_bag_reward = 20
 
+    def skip_rocket_hideout(self):
+        # Skip rocket hideout if we have interacted with the game corner poster
+        if ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"]:
+            # Put silph scope in items bag
+            idx = 0  # Assuming the index where you want to place the Lift Key
+            self.pyboy.memory[0xD31E + idx * 2] = 0x48  # silph scope 0x48
+            self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
+
+            # Flip bit for "beat_rocket_hideout_giovanni"
+            current_value = self.pyboy.memory[0xD81B]
+            self.pyboy.memory[0xD81B] = current_value | (1 << 7)
+    
     def step(self, action):
         if self.save_video and self.step_count == 0:
             self.start_video()
@@ -674,6 +695,7 @@ class RedGymEnv(Env):
             )
 
         self.run_action_on_emulator(action)
+        self.skip_rocket_hideout()
         self.update_seen_coords()
         self.update_health()
         self.update_pokedex()
@@ -712,8 +734,7 @@ class RedGymEnv(Env):
 
     def run_action_on_emulator(self, action):
         self.action_hist[action] += 1
-        # press button then release after some steps
-        # TODO: Add video saving logic
+        r, c, map_n = self.get_game_coords()
         if not self.disable_ai_actions:
             self.pyboy.send_input(VALID_ACTIONS[action])
             self.pyboy.send_input(VALID_RELEASE_ACTIONS[action], delay=8)
@@ -723,6 +744,18 @@ class RedGymEnv(Env):
             if not self.check_if_party_has_cut():
                 self.teach_cut()
             self.cut_if_next()
+            
+        if c == 5 and r in list(range(11, 18)) and map_n == 135:
+            for _ in range(10):
+                self.pyboy.send_input(WindowEvent.PRESS_ARROW_LEFT)
+                self.pyboy.send_input(WindowEvent.RELEASE_ARROW_LEFT, delay=8)
+                self.pyboy.tick(7 * self.action_freq, render=True)
+        if c == 5 and r == 17 and map_n == 135:
+            self.pyboy.send_input(WindowEvent.PRESS_ARROW_LEFT)
+            self.pyboy.send_input(WindowEvent.RELEASE_ARROW_LEFT, delay=8)
+            self.pyboy.tick(self.action_freq, render=True)
+        # print(f'env_{self.env_id}: r: {r}, c: {c}, map_n: {map_n}')
+
 
     # def run_action_on_emulator_step_handler(self, step_handler, action):
     #     StepHandler.run_action_on_emulator(action)
@@ -981,6 +1014,13 @@ class RedGymEnv(Env):
                 "rescued_mr_fuji": int(self.read_bit(0xD7E0, 7)),
                 "beat_silph_co_giovanni": int(self.read_bit(0xD7E1, 0)),
                 "got_poke_flute": int(self.read_bit(0xD76C, 0)),
+                "has_lemonade_in_bag": self.has_lemonade_in_bag,
+                "has_fresh_water_in_bag": self.has_fresh_water_in_bag,
+                "has_soda_pop_in_bag": self.has_soda_pop_in_bag,
+                "has_silph_scope_in_bag": self.has_silph_scope_in_bag,
+                "has_lift_key_in_bag": self.has_lift_key_in_bag,
+                "has_pokedoll_in_bag": self.has_pokedoll_in_bag,
+                "has_bicycle_in_bag": self.has_bicycle_in_bag,
             },
             "reward": self.get_game_state_reward(),
             "reward/reward_sum": sum(self.get_game_state_reward().values()),
