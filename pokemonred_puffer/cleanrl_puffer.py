@@ -26,6 +26,17 @@ import torch.optim as optim
 from pokemonred_puffer.eval import make_pokemon_red_overlay
 from pokemonred_puffer.global_map import GLOBAL_MAP_SHAPE
 
+import logging
+# Configure logging
+logging.basicConfig(
+    filename="diagnostics.log",  # Name of the log file
+    filemode="a",  # Append to the file
+    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
+    level=logging.INFO,  # Log level
+)
+
+
+
 
 @pufferlib.dataclass
 class Performance:
@@ -588,18 +599,21 @@ class CleanPuffeRL:
         with torch.no_grad():
             advantages = torch.zeros(config.batch_size, device=self.device)
             lastgaelam = 0
-            for t in reversed(range(config.batch_size)):
-                i, i_nxt = idxs[t], idxs[t + 1]
-                nextnonterminal = 1.0 - self.dones[i_nxt]
-                nextvalues = self.values[i_nxt]
-                delta = (
-                    self.rewards[i_nxt]
-                    + config.gamma * nextvalues * nextnonterminal
-                    - self.values[i]
-                )
-                advantages[t] = lastgaelam = (
-                    delta + config.gamma * config.gae_lambda * nextnonterminal * lastgaelam
-                )
+            try:
+                for t in reversed(range(config.batch_size)):
+                    i, i_nxt = idxs[t], idxs[t + 1]
+                    nextnonterminal = 1.0 - self.dones[i_nxt]
+                    nextvalues = self.values[i_nxt]
+                    delta = (
+                        self.rewards[i_nxt]
+                        + config.gamma * nextvalues * nextnonterminal
+                        - self.values[i]
+                    )
+                    advantages[t] = lastgaelam = (
+                        delta + config.gamma * config.gae_lambda * nextnonterminal * lastgaelam
+                    )
+            except Exception as e:
+                logging.info(f"Error in cleanrl_puffer.py: {e}")
 
         # Flatten the batch
         self.b_obs = b_obs = torch.as_tensor(self.obs_ary[b_idxs], dtype=torch.uint8)

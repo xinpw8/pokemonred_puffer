@@ -38,8 +38,7 @@ class BaselineRewardEnv(RedGymEnv):
             "cut_coords": sum(self.cut_coords.values()) * 1.0,
             "cut_tiles": sum(self.cut_tiles.values()) * 1.0,
             "met_bill": 5 * int(self.read_bit(0xD7F1, 0)) * self.calculate_event_scaling()
-            if self.get_badges() >= 2
-            else 0,
+            if self.get_badges() >= 2 else 0,
             "used_cell_separator_on_bill": 5 * int(self.read_bit(0xD7F2, 3))
             if self.get_badges() >= 2
             else 0,
@@ -271,6 +270,11 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
             * int(getattr(self, "has_pokedoll_in_bag", False)),
             "has_bicycle_in_bag": self.reward_config.get("has_bicycle_in_bag", 20.0)
             * int(getattr(self, "has_bicycle_in_bag", False)),
+            # "lab_events": self.reward_config.get("lab_events", 1.0) * sum(ram_map_leanke.monitor_lab_events(self.pyboy).values()),
+            "mansion_events": self.reward_config.get("mansion_events", 1.0) * sum(ram_map_leanke.monitor_mansion_events(self.pyboy).values()),
+            "safari_events": self.reward_config.get("safari_events", 1.0) * sum(ram_map_leanke.monitor_safari_events(self.pyboy).values()),
+            "snorlax_events": self.reward_config.get("snorlax_events", 1.0) * sum(ram_map_leanke.monitor_snorlax_events(self.pyboy).values()),
+            "dojo_events": self.reward_config.get("dojo_events", 1.0) * sum(ram_map_leanke.monitor_dojo_events(self.pyboy).values()),
         }
         return rewards
 

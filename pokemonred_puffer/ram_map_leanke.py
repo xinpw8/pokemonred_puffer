@@ -902,6 +902,13 @@ def snorlax(game):
         [route12_snorlax_fight, route12_snorlax_beat, route16_snorlax_fight, route16_snorlax_beat]
     )
 
+def monitor_snorlax_events(game):
+    return {
+        "route12_snorlax_fight": POKEMON * int(read_bit(game, 0xD7D8, 6)),
+        "route12_snorlax_beat": POKEMON * int(read_bit(game, 0xD7D8, 7)),
+        "route16_snorlax_fight": POKEMON * int(read_bit(game, 0xD7E0, 0)),
+        "route16_snorlax_beat": POKEMON * int(read_bit(game, 0xD7E0, 1)),
+    }
 
 def hmtm(game):
     # "0xD803-0": "Got Hm01",
@@ -1106,6 +1113,12 @@ def lab(game):
 
     return sum([gave_fossil_to_lab, lab_still_reviving_fossil, lab_handing_over_fossil_mon])
 
+def monitor_lab_events(game):
+    return {
+        "gave_fossil_to_lab": TASK * int(read_bit(game, 0xD7A3, 0)),
+        "lab_still_reviving_fossil": TASK * int(read_bit(game, 0xD7A3, 1)),
+        "lab_handing_over_fossil_mon": TASK * int(read_bit(game, 0xD7A3, 2)),
+    }
 
 def mansion(game):
     # "0xD847-1": "Beat Mansion 2 Trainer 0",
@@ -1135,6 +1148,16 @@ def mansion(game):
         ]
     )
 
+def monitor_mansion_events(game):
+    return {
+        "beat_mansion_2_trainer_0": TRAINER * int(read_bit(game, 0xD847, 1)),
+        "beat_mansion_3_trainer_0": TRAINER * int(read_bit(game, 0xD849, 1)),
+        "beat_mansion_3_trainer_1": TRAINER * int(read_bit(game, 0xD849, 2)),
+        "beat_mansion_4_trainer_0": TRAINER * int(read_bit(game, 0xD84B, 1)),
+        "beat_mansion_4_trainer_1": TRAINER * int(read_bit(game, 0xD84B, 2)),
+        "mansion_switch_on": QUEST * int(read_bit(game, 0xD796, 0)),
+        "beat_mansion_1_trainer_0": TRAINER * int(read_bit(game, 0xD798, 1)),
+    }
 
 def safari(game):
     # "0xD78E-1": "Gave Gold Teeth",
@@ -1146,6 +1169,12 @@ def safari(game):
 
     return sum([gave_gold_teeth, safari_game_over, in_safari_zone])
 
+def monitor_safari_events(game):
+    return {
+        "gave_gold_teeth": QUEST * int(read_bit(game, 0xD78E, 1)),
+        "safari_game_over": EVENT * int(read_bit(game, 0xD790, 6)),
+        "in_safari_zone": EVENT * int(read_bit(game, 0xD790, 7)),
+    }
 
 def dojo(game):
     # "0xD7B1-0": "Defeated Fighting Dojo",
@@ -1354,6 +1383,8 @@ def monitor_poke_tower_events(game):
         "beat_pokemontower_7_trainer_0": TRAINER * int(read_bit(game, 0xD769, 1)),
         "beat_pokemontower_7_trainer_1": TRAINER * int(read_bit(game, 0xD769, 2)),
         "beat_pokemontower_7_trainer_2": TRAINER * int(read_bit(game, 0xD769, 3)),
+        "rescued_mr_fuji_1": TASK * int(read_bit(game, 0xD7E0, 7)),
+        "rescued_mr_fuji_2": TASK * int(read_bit(game, 0xD769, 7)),
     }
 
     return events_status

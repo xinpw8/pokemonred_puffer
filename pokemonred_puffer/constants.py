@@ -1,6 +1,8 @@
 from pyboy.utils import WindowEvent
 from gymnasium import spaces
 import numpy as np
+from enum import Enum
+
 
 STATES_TO_SAVE_LOAD = [
     "recent_frames",
@@ -295,6 +297,8 @@ ALL_HM_IDS = [
     0xC7,  # STRENGTH
     0xC8,  # FLASH
 ]
+
+STRENGTH = 0x46
 
 ALL_POKEBALL_IDS = [
     0x01,  # MASTER_BALL
@@ -7703,3 +7707,1691 @@ VALID_RELEASE_ACTIONS = [
 VALID_ACTIONS_STR = ["down", "left", "right", "up", "a", "b", "start"]
 
 ACTION_SPACE = spaces.Discrete(len(VALID_ACTIONS))
+
+FIELD_MOVES = ["CUT", "FLY", "SURF", "SURF", "STRENGTH", "FLASH", "DIG", "TELEPORT", "SOFTBOILED"]
+
+FIELD_MOVES_MAP = {i + 1: v for i, v in enumerate(FIELD_MOVES)}
+
+MAX_ITEM_CAPACITY = 20
+
+# Starts at 0x1
+KEY_ITEM_IDS = [
+    False,  # MASTER_BALL
+    False,  # ULTRA_BALL
+    False,  # GREAT_BALL
+    False,  # POKE_BALL
+    True,  # TOWN_MAP
+    True,  # BICYCLE
+    True,  # SURFBOARD
+    True,  # SAFARI_BALL
+    True,  # POKEDEX
+    False,  # MOON_STONE
+    False,  # ANTIDOTE
+    False,  # BURN_HEAL
+    False,  # ICE_HEAL
+    False,  # AWAKENING
+    False,  # PARLYZ_HEAL
+    False,  # FULL_RESTORE
+    False,  # MAX_POTION
+    False,  # HYPER_POTION
+    False,  # SUPER_POTION
+    False,  # POTION
+    True,  # BOULDERBADGE
+    True,  # CASCADEBADGE
+    True,  # THUNDERBADGE
+    True,  # RAINBOWBADGE
+    True,  # SOULBADGE
+    True,  # MARSHBADGE
+    True,  # VOLCANOBADGE
+    True,  # EARTHBADGE
+    False,  # ESCAPE_ROPE
+    False,  # REPEL
+    True,  # OLD_AMBER
+    False,  # FIRE_STONE
+    False,  # THUNDER_STONE
+    False,  # WATER_STONE
+    False,  # HP_UP
+    False,  # PROTEIN
+    False,  # IRON
+    False,  # CARBOS
+    False,  # CALCIUM
+    False,  # RARE_CANDY
+    True,  # DOME_FOSSIL
+    True,  # HELIX_FOSSIL
+    True,  # SECRET_KEY
+    True,  # ITEM_2C
+    True,  # BIKE_VOUCHER
+    False,  # X_ACCURACY
+    False,  # LEAF_STONE
+    True,  # CARD_KEY
+    False,  # NUGGET
+    False,  # ITEM_32
+    False,  # POKE_DOLL
+    False,  # FULL_HEAL
+    False,  # REVIVE
+    False,  # MAX_REVIVE
+    False,  # GUARD_SPEC
+    False,  # SUPER_REPEL
+    False,  # MAX_REPEL
+    False,  # DIRE_HIT
+    False,  # COIN
+    False,  # FRESH_WATER
+    False,  # SODA_POP
+    False,  # LEMONADE
+    True,  # S_S_TICKET
+    True,  # GOLD_TEETH
+    False,  # X_ATTACK
+    False,  # X_DEFEND
+    False,  # X_SPEED
+    False,  # X_SPECIAL
+    True,  # COIN_CASE
+    True,  # OAKS_PARCEL
+    True,  # ITEMFINDER
+    True,  # SILPH_SCOPE
+    True,  # POKE_FLUTE
+    True,  # LIFT_KEY
+    False,  # EXP_ALL
+    True,  # OLD_ROD
+    True,  # GOOD_ROD
+    True,  # SUPER_ROD
+    False,  # PP_UP
+    False,  # ETHER
+    False,  # MAX_ETHER
+    False,  # ELIXER
+    False,  # MAX_ELIXER
+]
+
+# Start = 0x1
+ITEM_NAMES = [
+    "MASTER_BALL",
+    "ULTRA_BALL",
+    "GREAT_BALL",
+    "POKE_BALL",
+    "TOWN_MAP",
+    "BICYCLE",
+    "SURFBOARD",
+    "SAFARI_BALL",
+    "POKEDEX",
+    "MOON_STONE",
+    "ANTIDOTE",
+    "BURN_HEAL",
+    "ICE_HEAL",
+    "AWAKENING",
+    "PARLYZ_HEAL",
+    "FULL_RESTORE",
+    "MAX_POTION",
+    "HYPER_POTION",
+    "SUPER_POTION",
+    "POTION",
+    "BOULDERBADGE",
+    "CASCADEBADGE",
+    "THUNDERBADGE",
+    "RAINBOWBADGE",
+    "SOULBADGE",
+    "MARSHBADGE",
+    "VOLCANOBADGE",
+    "EARTHBADGE",
+    "ESCAPE_ROPE",
+    "REPEL",
+    "OLD_AMBER",
+    "FIRE_STONE",
+    "THUNDER_STONE",
+    "WATER_STONE",
+    "HP_UP",
+    "PROTEIN",
+    "IRON",
+    "CARBOS",
+    "CALCIUM",
+    "RARE_CANDY",
+    "DOME_FOSSIL",
+    "HELIX_FOSSIL",
+    "SECRET_KEY",
+    "UNUSED_ITEM",
+    "BIKE_VOUCHER",
+    "X_ACCURACY",
+    "LEAF_STONE",
+    "CARD_KEY",
+    "NUGGET",
+    "PP_UP_2",
+    "POKE_DOLL",
+    "FULL_HEAL",
+    "REVIVE",
+    "MAX_REVIVE",
+    "GUARD_SPEC",
+    "SUPER_REPEL",
+    "MAX_REPEL",
+    "DIRE_HIT",
+    "COIN",
+    "FRESH_WATER",
+    "SODA_POP",
+    "LEMONADE",
+    "S_S_TICKET",
+    "GOLD_TEETH",
+    "X_ATTACK",
+    "X_DEFEND",
+    "X_SPEED",
+    "X_SPECIAL",
+    "COIN_CASE",
+    "OAKS_PARCEL",
+    "ITEMFINDER",
+    "SILPH_SCOPE",
+    "POKE_FLUTE",
+    "LIFT_KEY",
+    "EXP_ALL",
+    "OLD_ROD",
+    "GOOD_ROD",
+    "SUPER_ROD",
+    "PP_UP",
+    "ETHER",
+    "MAX_ETHER",
+    "ELIXER",
+    "MAX_ELIXER",
+    "FLOOR_B2F",
+    "FLOOR_B1F",
+    "FLOOR_1F",
+    "FLOOR_2F",
+    "FLOOR_3F",
+    "FLOOR_4F",
+    "FLOOR_5F",
+    "FLOOR_6F",
+    "FLOOR_7F",
+    "FLOOR_8F",
+    "FLOOR_9F",
+    "FLOOR_10F",
+    "FLOOR_11F",
+    "FLOOR_B4F",
+]
+
+# Start = 0xC4
+TM_HM_ITEM_IDS = [
+    "HM_01",
+    "HM_02",
+    "HM_03",
+    "HM_04",
+    "HM_05",
+    "TM_01",
+    "TM_02",
+    "TM_03",
+    "TM_04",
+    "TM_05",
+    "TM_06",
+    "TM_07",
+    "TM_08",
+    "TM_09",
+    "TM_10",
+    "TM_11",
+    "TM_12",
+    "TM_13",
+    "TM_14",
+    "TM_15",
+    "TM_16",
+    "TM_17",
+    "TM_18",
+    "TM_19",
+    "TM_20",
+    "TM_21",
+    "TM_22",
+    "TM_23",
+    "TM_24",
+    "TM_25",
+    "TM_26",
+    "TM_27",
+    "TM_28",
+    "TM_29",
+    "TM_30",
+    "TM_31",
+    "TM_32",
+    "TM_33",
+    "TM_34",
+    "TM_35",
+    "TM_36",
+    "TM_37",
+    "TM_38",
+    "TM_39",
+    "TM_40",
+    "TM_41",
+    "TM_42",
+    "TM_43",
+    "TM_44",
+    "TM_45",
+    "TM_46",
+    "TM_47",
+    "TM_48",
+    "TM_49",
+    "TM_50",
+]
+
+HM_ITEM_IDS = {0xC4, 0xC5, 0xC6, 0xC7, 0xC8}
+
+ITEM_NAME_TO_ID = (
+    {v: i + 0x1 for i, v in enumerate(ITEM_NAMES)}
+    | {v: i + 0xC4 for i, v in enumerate(TM_HM_ITEM_IDS)}
+    | {"SAFARI_BAIT": 0x15, "SAFARI_ROCK": 0x16}
+)
+
+RESET_MAP_IDS = {
+    0x0,  # Pallet Town
+    0x1,  # Viridian City
+    0x2,  # Pewter City
+    0x3,  # Cerulean City
+    0x4,  # Lavender Town
+    0x5,  # Vermilion City
+    0x6,  # Celadon City
+    0x7,  # Fuchsia City
+    0x8,  # Cinnabar Island
+    0x9,  # Indigo Plateau
+    0xA,  # Saffron City
+    0xF,  # Route 4 (Mt Moon)
+    0x10,  # Route 10 (Rock Tunnel)
+    0xE9,  # Silph Co 9F (Heal station)
+}
+
+SPECIES_IDS = {
+    "RHYDON": 0x01,
+    "KANGASKHAN": 0x02,
+    "NIDORAN_M": 0x03,
+    "CLEFAIRY": 0x04,
+    "SPEAROW": 0x05,
+    "VOLTORB": 0x06,
+    "NIDOKING": 0x07,
+    "SLOWBRO": 0x08,
+    "IVYSAUR": 0x09,
+    "EXEGGUTOR": 0x0A,
+    "LICKITUNG": 0x0B,
+    "EXEGGCUTE": 0x0C,
+    "GRIMER": 0x0D,
+    "GENGAR": 0x0E,
+    "NIDORAN_F": 0x0F,
+    "NIDOQUEEN": 0x10,
+    "CUBONE": 0x11,
+    "RHYHORN": 0x12,
+    "LAPRAS": 0x13,
+    "ARCANINE": 0x14,
+    "MEW": 0x15,
+    "GYARADOS": 0x16,
+    "SHELLDER": 0x17,
+    "TENTACOOL": 0x18,
+    "GASTLY": 0x19,
+    "SCYTHER": 0x1A,
+    "STARYU": 0x1B,
+    "BLASTOISE": 0x1C,
+    "PINSIR": 0x1D,
+    "TANGELA": 0x1E,
+    "MISSINGNO_1F": 0x1F,
+    "MISSINGNO_20": 0x20,
+    "GROWLITHE": 0x21,
+    "ONIX": 0x22,
+    "FEAROW": 0x23,
+    "PIDGEY": 0x24,
+    "SLOWPOKE": 0x25,
+    "KADABRA": 0x26,
+    "GRAVELER": 0x27,
+    "CHANSEY": 0x28,
+    "MACHOKE": 0x29,
+    "MR_MIME": 0x2A,
+    "HITMONLEE": 0x2B,
+    "HITMONCHAN": 0x2C,
+    "ARBOK": 0x2D,
+    "PARASECT": 0x2E,
+    "PSYDUCK": 0x2F,
+    "DROWZEE": 0x30,
+    "GOLEM": 0x31,
+    "MISSINGNO_32": 0x32,
+    "MAGMAR": 0x33,
+    "MISSINGNO_34": 0x34,
+    "ELECTABUZZ": 0x35,
+    "MAGNETON": 0x36,
+    "KOFFING": 0x37,
+    "MISSINGNO_38": 0x38,
+    "MANKEY": 0x39,
+    "SEEL": 0x3A,
+    "DIGLETT": 0x3B,
+    "TAUROS": 0x3C,
+    "MISSINGNO_3D": 0x3D,
+    "MISSINGNO_3E": 0x3E,
+    "MISSINGNO_3F": 0x3F,
+    "FARFETCHD": 0x40,
+    "VENONAT": 0x41,
+    "DRAGONITE": 0x42,
+    "MISSINGNO_43": 0x43,
+    "MISSINGNO_44": 0x44,
+    "MISSINGNO_45": 0x45,
+    "DODUO": 0x46,
+    "POLIWAG": 0x47,
+    "JYNX": 0x48,
+    "MOLTRES": 0x49,
+    "ARTICUNO": 0x4A,
+    "ZAPDOS": 0x4B,
+    "DITTO": 0x4C,
+    "MEOWTH": 0x4D,
+    "KRABBY": 0x4E,
+    "MISSINGNO_4F": 0x4F,
+    "MISSINGNO_50": 0x50,
+    "MISSINGNO_51": 0x51,
+    "VULPIX": 0x52,
+    "NINETALES": 0x53,
+    "PIKACHU": 0x54,
+    "RAICHU": 0x55,
+    "MISSINGNO_56": 0x56,
+    "MISSINGNO_57": 0x57,
+    "DRATINI": 0x58,
+    "DRAGONAIR": 0x59,
+    "KABUTO": 0x5A,
+    "KABUTOPS": 0x5B,
+    "HORSEA": 0x5C,
+    "SEADRA": 0x5D,
+    "MISSINGNO_5E": 0x5E,
+    "MISSINGNO_5F": 0x5F,
+    "SANDSHREW": 0x60,
+    "SANDSLASH": 0x61,
+    "OMANYTE": 0x62,
+    "OMASTAR": 0x63,
+    "JIGGLYPUFF": 0x64,
+    "WIGGLYTUFF": 0x65,
+    "EEVEE": 0x66,
+    "FLAREON": 0x67,
+    "JOLTEON": 0x68,
+    "VAPOREON": 0x69,
+    "MACHOP": 0x6A,
+    "ZUBAT": 0x6B,
+    "EKANS": 0x6C,
+    "PARAS": 0x6D,
+    "POLIWHIRL": 0x6E,
+    "POLIWRATH": 0x6F,
+    "WEEDLE": 0x70,
+    "KAKUNA": 0x71,
+    "BEEDRILL": 0x72,
+    "MISSINGNO_73": 0x73,
+    "DODRIO": 0x74,
+    "PRIMEAPE": 0x75,
+    "DUGTRIO": 0x76,
+    "VENOMOTH": 0x77,
+    "DEWGONG": 0x78,
+    "MISSINGNO_79": 0x79,
+    "MISSINGNO_7A": 0x7A,
+    "CATERPIE": 0x7B,
+    "METAPOD": 0x7C,
+    "BUTTERFREE": 0x7D,
+    "MACHAMP": 0x7E,
+    "MISSINGNO_7F": 0x7F,
+    "GOLDUCK": 0x80,
+    "HYPNO": 0x81,
+    "GOLBAT": 0x82,
+    "MEWTWO": 0x83,
+    "SNORLAX": 0x84,
+    "MAGIKARP": 0x85,
+    "MISSINGNO_86": 0x86,
+    "MISSINGNO_87": 0x87,
+    "MUK": 0x88,
+    "MISSINGNO_89": 0x89,
+    "KINGLER": 0x8A,
+    "CLOYSTER": 0x8B,
+    "MISSINGNO_8C": 0x8C,
+    "ELECTRODE": 0x8D,
+    "CLEFABLE": 0x8E,
+    "WEEZING": 0x8F,
+    "PERSIAN": 0x90,
+    "MAROWAK": 0x91,
+    "MISSINGNO_92": 0x92,
+    "HAUNTER": 0x93,
+    "ABRA": 0x94,
+    "ALAKAZAM": 0x95,
+    "PIDGEOTTO": 0x96,
+    "PIDGEOT": 0x97,
+    "STARMIE": 0x98,
+    "BULBASAUR": 0x99,
+    "VENUSAUR": 0x9A,
+    "TENTACRUEL": 0x9B,
+    "MISSINGNO_9C": 0x9C,
+    "GOLDEEN": 0x9D,
+    "SEAKING": 0x9E,
+    "MISSINGNO_9F": 0x9F,
+    "MISSINGNO_A0": 0xA0,
+    "MISSINGNO_A1": 0xA1,
+    "MISSINGNO_A2": 0xA2,
+    "PONYTA": 0xA3,
+    "RAPIDASH": 0xA4,
+    "RATTATA": 0xA5,
+    "RATICATE": 0xA6,
+    "NIDORINO": 0xA7,
+    "NIDORINA": 0xA8,
+    "GEODUDE": 0xA9,
+    "PORYGON": 0xAA,
+    "AERODACTYL": 0xAB,
+    "MISSINGNO_AC": 0xAC,
+    "MAGNEMITE": 0xAD,
+    "MISSINGNO_AE": 0xAE,
+    "MISSINGNO_AF": 0xAF,
+    "CHARMANDER": 0xB0,
+    "SQUIRTLE": 0xB1,
+    "CHARMELEON": 0xB2,
+    "WARTORTLE": 0xB3,
+    "CHARIZARD": 0xB4,
+    "MISSINGNO_B5": 0xB5,
+    "FOSSIL_KABUTOPS": 0xB6,
+    "FOSSIL_AERODACTYL": 0xB7,
+    "MON_GHOST": 0xB8,
+    "ODDISH": 0xB9,
+    "GLOOM": 0xBA,
+    "VILEPLUME": 0xBB,
+    "BELLSPROUT": 0xBC,
+    "WEEPINBELL": 0xBD,
+    "VICTREEBEL": 0xBE,
+}
+
+STRENGTH_SOLUTIONS = {}
+
+###################
+# SEAFOAM ISLANDS #
+###################
+
+# Seafoam 1F Left
+STRENGTH_SOLUTIONS[(63, 14, 22, 18, 11, 192)] = [
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "RIGHT",
+    "UP",
+    "LEFT",
+]
+STRENGTH_SOLUTIONS[(63, 14, 22, 19, 10, 192)] = ["DOWN", "LEFT"] + STRENGTH_SOLUTIONS[
+    (63, 14, 22, 18, 11, 192)
+]
+STRENGTH_SOLUTIONS[(63, 14, 22, 18, 9, 192)] = ["RIGHT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 14, 22, 19, 10, 192)
+]
+STRENGTH_SOLUTIONS[(63, 14, 22, 17, 10, 192)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 14, 22, 18, 9, 192)
+]
+
+# Seafoam 1F right
+STRENGTH_SOLUTIONS[(63, 11, 30, 26, 8, 192)] = [
+    "UP",
+    "RIGHT",
+    "UP",
+    "RIGHT",
+    "UP",
+    "UP",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+]
+STRENGTH_SOLUTIONS[(63, 11, 30, 27, 7, 192)] = ["DOWN", "LEFT"] + STRENGTH_SOLUTIONS[
+    (63, 11, 30, 26, 8, 192)
+]
+STRENGTH_SOLUTIONS[(63, 11, 30, 26, 6, 192)] = ["RIGHT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 11, 30, 27, 7, 192)
+]
+STRENGTH_SOLUTIONS[(63, 11, 30, 25, 7, 192)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 11, 30, 26, 6, 192)
+]
+
+# Seafoam B1 left
+
+STRENGTH_SOLUTIONS[(63, 10, 21, 16, 6, 159)] = ["RIGHT"]
+STRENGTH_SOLUTIONS[(63, 10, 21, 17, 5, 159)] = ["LEFT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 10, 21, 16, 6, 159)
+]
+STRENGTH_SOLUTIONS[(63, 10, 21, 17, 7, 159)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 10, 21, 16, 6, 159)
+]
+
+# Seafoam B1 right
+
+STRENGTH_SOLUTIONS[(63, 10, 26, 21, 6, 159)] = ["RIGHT"]
+STRENGTH_SOLUTIONS[(63, 10, 26, 22, 5, 159)] = ["LEFT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 10, 26, 21, 6, 159)
+]
+STRENGTH_SOLUTIONS[(63, 10, 26, 22, 7, 159)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 10, 26, 21, 6, 159)
+]
+
+# Seafoam B2 left
+
+STRENGTH_SOLUTIONS[(63, 10, 22, 17, 6, 160)] = ["RIGHT"]
+STRENGTH_SOLUTIONS[(63, 10, 22, 18, 5, 160)] = ["LEFT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 10, 22, 17, 6, 160)
+]
+STRENGTH_SOLUTIONS[(63, 10, 22, 18, 7, 160)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 10, 22, 17, 6, 160)
+]
+
+# Seafoam B2 right
+
+STRENGTH_SOLUTIONS[(63, 10, 27, 24, 6, 160)] = ["LEFT"]
+STRENGTH_SOLUTIONS[(63, 10, 27, 23, 7, 160)] = ["RIGHT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 10, 27, 24, 6, 160)
+]
+
+# We skip seafoam b3 since that is for articuno
+# TODO: Articuno
+
+################
+# VICTORY ROAD #
+################
+
+# 1F Switch 1
+STRENGTH_SOLUTIONS[(63, 19, 9, 5, 14, 108)] = [
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "LEFT",
+    "DOWN",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "DOWN",
+    "RIGHT",
+    "RIGHT",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "LEFT",
+    "UP",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "DOWN",
+    "RIGHT",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "UP",
+    "RIGHT",
+    "DOWN",
+]
+
+STRENGTH_SOLUTIONS[(63, 19, 9, 4, 15, 108)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 19, 9, 5, 14, 108)
+]
+STRENGTH_SOLUTIONS[(63, 19, 9, 5, 16, 108)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 19, 9, 4, 15, 108)
+]
+
+# 2F Switch 1
+STRENGTH_SOLUTIONS[(63, 18, 8, 5, 14, 194)] = [
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "LEFT",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "RIGHT",
+    "DOWN",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+]
+
+STRENGTH_SOLUTIONS[(63, 18, 8, 4, 13, 194)] = ["RIGHT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 18, 8, 5, 14, 194)
+]
+STRENGTH_SOLUTIONS[(63, 18, 8, 3, 14, 194)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 18, 8, 4, 13, 194)
+]
+STRENGTH_SOLUTIONS[(63, 18, 8, 4, 15, 194)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 18, 8, 3, 14, 194)
+]
+
+# 3F Switch 3
+STRENGTH_SOLUTIONS[(63, 19, 26, 22, 4, 198)] = [
+    "UP",
+    "UP",
+    "RIGHT",
+    "UP",
+    "UP",
+    "LEFT",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "UP",
+    "RIGHT",
+    "UP",
+    "UP",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "LEFT",
+    "DOWN",
+    "DOWN",
+    "RIGHT",
+    "DOWN",
+    "DOWN",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "UP",
+    "LEFT",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "LEFT",
+    "DOWN",
+    "RIGHT",
+    "RIGHT",
+]
+
+STRENGTH_SOLUTIONS[(63, 19, 26, 23, 3, 198)] = ["DOWN", "LEFT"] + STRENGTH_SOLUTIONS[
+    (63, 19, 26, 22, 4, 198)
+]
+STRENGTH_SOLUTIONS[(63, 19, 26, 22, 2, 198)] = ["RIGHT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 19, 26, 23, 3, 198)
+]
+STRENGTH_SOLUTIONS[(63, 19, 26, 21, 3, 198)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 19, 26, 22, 2, 198)
+]
+
+# 3F Boulder in hole
+STRENGTH_SOLUTIONS[(63, 16, 17, 21, 15, 198)] = ["RIGHT", "RIGHT", "RIGHT"]
+STRENGTH_SOLUTIONS[(63, 16, 17, 22, 16, 198)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 16, 17, 21, 15, 198)
+]
+STRENGTH_SOLUTIONS[(63, 16, 17, 22, 14, 198)] = ["LEFT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 16, 17, 21, 15, 198)
+]
+
+
+# 2F final switch
+STRENGTH_SOLUTIONS[(63, 20, 27, 24, 16, 194)] = [
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+]
+
+STRENGTH_SOLUTIONS[(63, 20, 27, 23, 17, 194)] = ["RIGHT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 20, 27, 24, 16, 194)
+]
+STRENGTH_SOLUTIONS[(63, 20, 27, 22, 16, 194)] = ["DOWN", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 20, 27, 23, 17, 194)
+]
+
+from enum import Enum
+
+
+class Tilesets(Enum):
+    OVERWORLD = 0
+    REDS_HOUSE_1 = 1
+    MART = 2
+    FOREST = 3
+    REDS_HOUSE_2 = 4
+    DOJO = 5
+    POKECENTER = 6
+    GYM = 7
+    HOUSE = 8
+    FOREST_GATE = 9
+    MUSEUM = 10
+    UNDERGROUND = 11
+    GATE = 12
+    SHIP = 13
+    SHIP_PORT = 14
+    CEMETERY = 15
+    INTERIOR = 16
+    CAVERN = 17
+    LOBBY = 18
+    MANSION = 19
+    LAB = 20
+    CLUB = 21
+    FACILITY = 22
+    PLATEAU = 23
+    
+TM_HM_MOVES = {
+    5,  # Mega punch
+    0xD,  # Razor wind
+    0xE,  # Swords dance
+    0x12,  # Whirlwind
+    0x19,  # Mega kick
+    0x5C,  # Toxic
+    0x20,  # Horn drill
+    0x22,  # Body slam
+    0x24,  # Take down
+    0x26,  # Double edge
+    0x3D,  # Bubble beam
+    0x37,  # Water gun
+    0x3A,  # Ice beam
+    0x3B,  # Blizzard
+    0x3F,  # Hyper beam
+    0x06,  # Pay day
+    0x42,  # Submission
+    0x44,  # Counter
+    0x45,  # Seismic toss
+    0x63,  # Rage
+    0x48,  # Mega drain
+    0x4C,  # Solar beam
+    0x52,  # Dragon rage
+    0x55,  # Thunderbolt
+    0x57,  # Thunder
+    0x59,  # Earthquake
+    0x5A,  # Fissure
+    0x5B,  # Dig
+    0x5E,  # Psychic
+    0x64,  # Teleport
+    0x66,  # Mimic
+    0x68,  # Double team
+    0x73,  # Reflect
+    0x75,  # Bide
+    0x76,  # Metronome
+    0x78,  # Selfdestruct
+    0x79,  # Egg bomb
+    0x7E,  # Fire blast
+    0x81,  # Swift
+    0x82,  # Skull bash
+    0x87,  # Softboiled
+    0x8A,  # Dream eater
+    0x8F,  # Sky attack
+    0x9C,  # Rest
+    0x56,  # Thunder wave
+    0x95,  # Psywave
+    0x99,  # Explosion
+    0x9D,  # Rock slide
+    0xA1,  # Tri attack
+    0xA4,  # Substitute
+    0x0F,  # Cut
+    0x13,  # Fly
+    0x39,  # Surf
+    0x46,  # Strength
+    0x94,  # Flash
+}
+
+CUT_SPECIES_IDS = {
+    SPECIES_IDS["BULBASAUR"],
+    SPECIES_IDS["IVYSAUR"],
+    SPECIES_IDS["VENUSAUR"],
+    SPECIES_IDS["CHARMANDER"],
+    SPECIES_IDS["CHARMELEON"],
+    SPECIES_IDS["CHARIZARD"],
+    SPECIES_IDS["BEEDRILL"],
+    SPECIES_IDS["SANDSHREW"],
+    SPECIES_IDS["SANDSLASH"],
+    SPECIES_IDS["ODDISH"],
+    SPECIES_IDS["GLOOM"],
+    SPECIES_IDS["VILEPLUME"],
+    SPECIES_IDS["PARAS"],
+    SPECIES_IDS["PARASECT"],
+    SPECIES_IDS["BELLSPROUT"],
+    SPECIES_IDS["WEEPINBELL"],
+    SPECIES_IDS["VICTREEBEL"],
+    SPECIES_IDS["TENTACOOL"],
+    SPECIES_IDS["TENTACRUEL"],
+    SPECIES_IDS["FARFETCHD"],
+    SPECIES_IDS["KRABBY"],
+    SPECIES_IDS["KINGLER"],
+    SPECIES_IDS["LICKITUNG"],
+    SPECIES_IDS["TANGELA"],
+    SPECIES_IDS["SCYTHER"],
+    SPECIES_IDS["PINSIR"],
+    SPECIES_IDS["MEW"],
+}
+
+SURF_SPECIES_IDS = {
+    SPECIES_IDS["SQUIRTLE"],
+    SPECIES_IDS["WARTORTLE"],
+    SPECIES_IDS["BLASTOISE"],
+    SPECIES_IDS["NIDOQUEEN"],
+    SPECIES_IDS["NIDOKING"],
+    SPECIES_IDS["PSYDUCK"],
+    SPECIES_IDS["GOLDUCK"],
+    SPECIES_IDS["POLIWAG"],
+    SPECIES_IDS["POLIWHIRL"],
+    SPECIES_IDS["POLIWRATH"],
+    SPECIES_IDS["TENTACOOL"],
+    SPECIES_IDS["TENTACRUEL"],
+    SPECIES_IDS["SLOWPOKE"],
+    SPECIES_IDS["SLOWBRO"],
+    SPECIES_IDS["SEEL"],
+    SPECIES_IDS["DEWGONG"],
+    SPECIES_IDS["SHELLDER"],
+    SPECIES_IDS["CLOYSTER"],
+    SPECIES_IDS["KRABBY"],
+    SPECIES_IDS["KINGLER"],
+    SPECIES_IDS["LICKITUNG"],
+    SPECIES_IDS["RHYDON"],
+    SPECIES_IDS["KANGASKHAN"],
+    SPECIES_IDS["HORSEA"],
+    SPECIES_IDS["SEADRA"],
+    SPECIES_IDS["GOLDEEN"],
+    SPECIES_IDS["SEAKING"],
+    SPECIES_IDS["STARYU"],
+    SPECIES_IDS["STARMIE"],
+    SPECIES_IDS["GYARADOS"],
+    SPECIES_IDS["LAPRAS"],
+    SPECIES_IDS["VAPOREON"],
+    SPECIES_IDS["OMANYTE"],
+    SPECIES_IDS["OMASTAR"],
+    SPECIES_IDS["KABUTO"],
+    SPECIES_IDS["KABUTOPS"],
+    SPECIES_IDS["SNORLAX"],
+    SPECIES_IDS["DRATINI"],
+    SPECIES_IDS["DRAGONAIR"],
+    SPECIES_IDS["DRAGONITE"],
+    SPECIES_IDS["MEW"],
+}
+
+STRENGTH_SPECIES_IDS = {
+    SPECIES_IDS["CHARMANDER"],
+    SPECIES_IDS["CHARMELEON"],
+    SPECIES_IDS["CHARIZARD"],
+    SPECIES_IDS["SQUIRTLE"],
+    SPECIES_IDS["WARTORTLE"],
+    SPECIES_IDS["BLASTOISE"],
+    SPECIES_IDS["EKANS"],
+    SPECIES_IDS["ARBOK"],
+    SPECIES_IDS["SANDSHREW"],
+    SPECIES_IDS["SANDSLASH"],
+    SPECIES_IDS["NIDOQUEEN"],
+    SPECIES_IDS["NIDOKING"],
+    SPECIES_IDS["CLEFAIRY"],
+    SPECIES_IDS["CLEFABLE"],
+    SPECIES_IDS["JIGGLYPUFF"],
+    SPECIES_IDS["WIGGLYTUFF"],
+    SPECIES_IDS["PSYDUCK"],
+    SPECIES_IDS["GOLDUCK"],
+    SPECIES_IDS["MANKEY"],
+    SPECIES_IDS["PRIMEAPE"],
+    SPECIES_IDS["POLIWHIRL"],
+    SPECIES_IDS["POLIWRATH"],
+    SPECIES_IDS["MACHOP"],
+    SPECIES_IDS["MACHOKE"],
+    SPECIES_IDS["MACHAMP"],
+    SPECIES_IDS["GEODUDE"],
+    SPECIES_IDS["GRAVELER"],
+    SPECIES_IDS["GOLEM"],
+    SPECIES_IDS["SLOWPOKE"],
+    SPECIES_IDS["SLOWBRO"],
+    SPECIES_IDS["SEEL"],
+    SPECIES_IDS["DEWGONG"],
+    SPECIES_IDS["GENGAR"],
+    SPECIES_IDS["ONIX"],
+    SPECIES_IDS["KRABBY"],
+    SPECIES_IDS["KINGLER"],
+    SPECIES_IDS["EXEGGUTOR"],
+    SPECIES_IDS["CUBONE"],
+    SPECIES_IDS["MAROWAK"],
+    SPECIES_IDS["HITMONLEE"],
+    SPECIES_IDS["HITMONCHAN"],
+    SPECIES_IDS["LICKITUNG"],
+    SPECIES_IDS["RHYHORN"],
+    SPECIES_IDS["RHYDON"],
+    SPECIES_IDS["CHANSEY"],
+    SPECIES_IDS["KANGASKHAN"],
+    SPECIES_IDS["ELECTABUZZ"],
+    SPECIES_IDS["MAGMAR"],
+    SPECIES_IDS["PINSIR"],
+    SPECIES_IDS["TAUROS"],
+    SPECIES_IDS["GYARADOS"],
+    SPECIES_IDS["LAPRAS"],
+    SPECIES_IDS["SNORLAX"],
+    SPECIES_IDS["DRAGONITE"],
+    SPECIES_IDS["MEWTWO"],
+    SPECIES_IDS["MEW"],
+}
+
+
+class FieldMoves(Enum):
+    CUT = 1
+    FLY = 2
+    SURF = 3
+    SURF_2 = 4
+    STRENGTH = 5
+    FLASH = 6
+    DIG = 7
+    TELEPORT = 8
+    SOFTBOILED = 9
+    
+class TmHmMoves(Enum):
+    MEGA_PUNCH = (0x5,)
+    RAZOR_WIND = 0xD
+    SWORDS_DANCE = 0xE
+    WHIRLWIND = 0x12
+    MEGA_KICK = 0x19
+    TOXIC = 0x5C
+    HORN_DRILL = 0x20
+    BODY_SLAM = 0x22
+    TAKE_DOWN = 0x24
+    DOUBLE_EDGE = 0x26
+    BUBBLE_BEAM = 0x3D
+    WATER_GUN = 0x37
+    ICE_BEAM = 0x3A
+    BLIZZARD = 0x3B
+    HYPER_BEAM = 0x3F
+    PAY_DAY = 0x06
+    SUBMISSION = 0x42
+    COUNTER = 0x44
+    SEISMIC_TOSS = 0x45
+    RAGE = 0x63
+    MEGA_DRAIN = 0x48
+    SOLAR_BEAM = 0x4C
+    DRAGON_RAGE = 0x52
+    THUNDERBOLT = 0x55
+    THUNDER = 0x57
+    EARTHQUAKE = 0x59
+    FISSURE = 0x5A
+    DIG = 0x5B
+    PSYCHIC = 0x5E
+    TELEPORT = 0x64
+    MIMIC = 0x66
+    DOUBLE_TEAM = 0x68
+    REFLECT = 0x73
+    BIDE = 0x75
+    METRONOME = 0x76
+    SELFDESTRUCT = 0x78
+    EGG_BOMB = 0x79
+    FIRE_BLAST = 0x7E
+    SWIFT = 0x81
+    SKULL_BASH = 0x82
+    SOFTBOILED = 0x87
+    DREAM_EATER = 0x8A
+    SKY_ATTACK = 0x8F
+    REST = 0x9C
+    THUNDER_WAVE = 0x56
+    PSYWAVE = 0x95
+    EXPLOSION = 0x99
+    ROCK_SLIDE = 0x9D
+    TRI_ATTACK = 0xA1
+    SUBSTITUTE = 0xA4
+    CUT = 0x0F
+    FLY = 0x13
+    SURF = 0x39
+    STRENGTH = 0x46
+    FLASH = 0x94
+
+
+class Species(Enum):
+    RHYDON = 0x01
+    KANGASKHAN = 0x02
+    NIDORAN_M = 0x03
+    CLEFAIRY = 0x04
+    SPEAROW = 0x05
+    VOLTORB = 0x06
+    NIDOKING = 0x07
+    SLOWBRO = 0x08
+    IVYSAUR = 0x09
+    EXEGGUTOR = 0x0A
+    LICKITUNG = 0x0B
+    EXEGGCUTE = 0x0C
+    GRIMER = 0x0D
+    GENGAR = 0x0E
+    NIDORAN_F = 0x0F
+    NIDOQUEEN = 0x10
+    CUBONE = 0x11
+    RHYHORN = 0x12
+    LAPRAS = 0x13
+    ARCANINE = 0x14
+    MEW = 0x15
+    GYARADOS = 0x16
+    SHELLDER = 0x17
+    TENTACOOL = 0x18
+    GASTLY = 0x19
+    SCYTHER = 0x1A
+    STARYU = 0x1B
+    BLASTOISE = 0x1C
+    PINSIR = 0x1D
+    TANGELA = 0x1E
+    MISSINGNO_1F = 0x1F
+    MISSINGNO_20 = 0x20
+    GROWLITHE = 0x21
+    ONIX = 0x22
+    FEAROW = 0x23
+    PIDGEY = 0x24
+    SLOWPOKE = 0x25
+    KADABRA = 0x26
+    GRAVELER = 0x27
+    CHANSEY = 0x28
+    MACHOKE = 0x29
+    MR_MIME = 0x2A
+    HITMONLEE = 0x2B
+    HITMONCHAN = 0x2C
+    ARBOK = 0x2D
+    PARASECT = 0x2E
+    PSYDUCK = 0x2F
+    DROWZEE = 0x30
+    GOLEM = 0x31
+    MISSINGNO_32 = 0x32
+    MAGMAR = 0x33
+    MISSINGNO_34 = 0x34
+    ELECTABUZZ = 0x35
+    MAGNETON = 0x36
+    KOFFING = 0x37
+    MISSINGNO_38 = 0x38
+    MANKEY = 0x39
+    SEEL = 0x3A
+    DIGLETT = 0x3B
+    TAUROS = 0x3C
+    MISSINGNO_3D = 0x3D
+    MISSINGNO_3E = 0x3E
+    MISSINGNO_3F = 0x3F
+    FARFETCHD = 0x40
+    VENONAT = 0x41
+    DRAGONITE = 0x42
+    MISSINGNO_43 = 0x43
+    MISSINGNO_44 = 0x44
+    MISSINGNO_45 = 0x45
+    DODUO = 0x46
+    POLIWAG = 0x47
+    JYNX = 0x48
+    MOLTRES = 0x49
+    ARTICUNO = 0x4A
+    ZAPDOS = 0x4B
+    DITTO = 0x4C
+    MEOWTH = 0x4D
+    KRABBY = 0x4E
+    MISSINGNO_4F = 0x4F
+    MISSINGNO_50 = 0x50
+    MISSINGNO_51 = 0x51
+    VULPIX = 0x52
+    NINETALES = 0x53
+    PIKACHU = 0x54
+    RAICHU = 0x55
+    MISSINGNO_56 = 0x56
+    MISSINGNO_57 = 0x57
+    DRATINI = 0x58
+    DRAGONAIR = 0x59
+    KABUTO = 0x5A
+    KABUTOPS = 0x5B
+    HORSEA = 0x5C
+    SEADRA = 0x5D
+    MISSINGNO_5E = 0x5E
+    MISSINGNO_5F = 0x5F
+    SANDSHREW = 0x60
+    SANDSLASH = 0x61
+    OMANYTE = 0x62
+    OMASTAR = 0x63
+    JIGGLYPUFF = 0x64
+    WIGGLYTUFF = 0x65
+    EEVEE = 0x66
+    FLAREON = 0x67
+    JOLTEON = 0x68
+    VAPOREON = 0x69
+    MACHOP = 0x6A
+    ZUBAT = 0x6B
+    EKANS = 0x6C
+    PARAS = 0x6D
+    POLIWHIRL = 0x6E
+    POLIWRATH = 0x6F
+    WEEDLE = 0x70
+    KAKUNA = 0x71
+    BEEDRILL = 0x72
+    MISSINGNO_73 = 0x73
+    DODRIO = 0x74
+    PRIMEAPE = 0x75
+    DUGTRIO = 0x76
+    VENOMOTH = 0x77
+    DEWGONG = 0x78
+    MISSINGNO_79 = 0x79
+    MISSINGNO_7A = 0x7A
+    CATERPIE = 0x7B
+    METAPOD = 0x7C
+    BUTTERFREE = 0x7D
+    MACHAMP = 0x7E
+    MISSINGNO_7F = 0x7F
+    GOLDUCK = 0x80
+    HYPNO = 0x81
+    GOLBAT = 0x82
+    MEWTWO = 0x83
+    SNORLAX = 0x84
+    MAGIKARP = 0x85
+    MISSINGNO_86 = 0x86
+    MISSINGNO_87 = 0x87
+    MUK = 0x88
+    MISSINGNO_89 = 0x89
+    KINGLER = 0x8A
+    CLOYSTER = 0x8B
+    MISSINGNO_8C = 0x8C
+    ELECTRODE = 0x8D
+    CLEFABLE = 0x8E
+    WEEZING = 0x8F
+    PERSIAN = 0x90
+    MAROWAK = 0x91
+    MISSINGNO_92 = 0x92
+    HAUNTER = 0x93
+    ABRA = 0x94
+    ALAKAZAM = 0x95
+    PIDGEOTTO = 0x96
+    PIDGEOT = 0x97
+    STARMIE = 0x98
+    BULBASAUR = 0x99
+    VENUSAUR = 0x9A
+    TENTACRUEL = 0x9B
+    MISSINGNO_9C = 0x9C
+    GOLDEEN = 0x9D
+    SEAKING = 0x9E
+    MISSINGNO_9F = 0x9F
+    MISSINGNO_A0 = 0xA0
+    MISSINGNO_A1 = 0xA1
+    MISSINGNO_A2 = 0xA2
+    PONYTA = 0xA3
+    RAPIDASH = 0xA4
+    RATTATA = 0xA5
+    RATICATE = 0xA6
+    NIDORINO = 0xA7
+    NIDORINA = 0xA8
+    GEODUDE = 0xA9
+    PORYGON = 0xAA
+    AERODACTYL = 0xAB
+    MISSINGNO_AC = 0xAC
+    MAGNEMITE = 0xAD
+    MISSINGNO_AE = 0xAE
+    MISSINGNO_AF = 0xAF
+    CHARMANDER = 0xB0
+    SQUIRTLE = 0xB1
+    CHARMELEON = 0xB2
+    WARTORTLE = 0xB3
+    CHARIZARD = 0xB4
+    MISSINGNO_B5 = 0xB5
+    FOSSIL_KABUTOPS = 0xB6
+    FOSSIL_AERODACTYL = 0xB7
+    MON_GHOST = 0xB8
+    ODDISH = 0xB9
+    GLOOM = 0xBA
+    VILEPLUME = 0xBB
+    BELLSPROUT = 0xBC
+    WEEPINBELL = 0xBD
+    VICTREEBEL = 0xBE
+
+CUT_SPECIES_IDS = {
+    Species.BULBASAUR.value,
+    Species.IVYSAUR.value,
+    Species.VENUSAUR.value,
+    Species.CHARMANDER.value,
+    Species.CHARMELEON.value,
+    Species.CHARIZARD.value,
+    Species.BEEDRILL.value,
+    Species.SANDSHREW.value,
+    Species.SANDSLASH.value,
+    Species.ODDISH.value,
+    Species.GLOOM.value,
+    Species.VILEPLUME.value,
+    Species.PARAS.value,
+    Species.PARASECT.value,
+    Species.BELLSPROUT.value,
+    Species.WEEPINBELL.value,
+    Species.VICTREEBEL.value,
+    Species.TENTACOOL.value,
+    Species.TENTACRUEL.value,
+    Species.FARFETCHD.value,
+    Species.KRABBY.value,
+    Species.KINGLER.value,
+    Species.LICKITUNG.value,
+    Species.TANGELA.value,
+    Species.SCYTHER.value,
+    Species.PINSIR.value,
+    Species.MEW.value,
+}
+
+SURF_SPECIES_IDS = {
+    Species.SQUIRTLE.value,
+    Species.WARTORTLE.value,
+    Species.BLASTOISE.value,
+    Species.NIDOQUEEN.value,
+    Species.NIDOKING.value,
+    Species.PSYDUCK.value,
+    Species.GOLDUCK.value,
+    Species.POLIWAG.value,
+    Species.POLIWHIRL.value,
+    Species.POLIWRATH.value,
+    Species.TENTACOOL.value,
+    Species.TENTACRUEL.value,
+    Species.SLOWPOKE.value,
+    Species.SLOWBRO.value,
+    Species.SEEL.value,
+    Species.DEWGONG.value,
+    Species.SHELLDER.value,
+    Species.CLOYSTER.value,
+    Species.KRABBY.value,
+    Species.KINGLER.value,
+    Species.LICKITUNG.value,
+    Species.RHYDON.value,
+    Species.KANGASKHAN.value,
+    Species.HORSEA.value,
+    Species.SEADRA.value,
+    Species.GOLDEEN.value,
+    Species.SEAKING.value,
+    Species.STARYU.value,
+    Species.STARMIE.value,
+    Species.GYARADOS.value,
+    Species.LAPRAS.value,
+    Species.VAPOREON.value,
+    Species.OMANYTE.value,
+    Species.OMASTAR.value,
+    Species.KABUTO.value,
+    Species.KABUTOPS.value,
+    Species.SNORLAX.value,
+    Species.DRATINI.value,
+    Species.DRAGONAIR.value,
+    Species.DRAGONITE.value,
+    Species.MEW.value,
+}
+
+STRENGTH_SPECIES_IDS = {
+    Species.CHARMANDER.value,
+    Species.CHARMELEON.value,
+    Species.CHARIZARD.value,
+    Species.SQUIRTLE.value,
+    Species.WARTORTLE.value,
+    Species.BLASTOISE.value,
+    Species.EKANS.value,
+    Species.ARBOK.value,
+    Species.SANDSHREW.value,
+    Species.SANDSLASH.value,
+    Species.NIDOQUEEN.value,
+    Species.NIDOKING.value,
+    Species.CLEFAIRY.value,
+    Species.CLEFABLE.value,
+    Species.JIGGLYPUFF.value,
+    Species.WIGGLYTUFF.value,
+    Species.PSYDUCK.value,
+    Species.GOLDUCK.value,
+    Species.MANKEY.value,
+    Species.PRIMEAPE.value,
+    Species.POLIWHIRL.value,
+    Species.POLIWRATH.value,
+    Species.MACHOP.value,
+    Species.MACHOKE.value,
+    Species.MACHAMP.value,
+    Species.GEODUDE.value,
+    Species.GRAVELER.value,
+    Species.GOLEM.value,
+    Species.SLOWPOKE.value,
+    Species.SLOWBRO.value,
+    Species.SEEL.value,
+    Species.DEWGONG.value,
+    Species.GENGAR.value,
+    Species.ONIX.value,
+    Species.KRABBY.value,
+    Species.KINGLER.value,
+    Species.EXEGGUTOR.value,
+    Species.CUBONE.value,
+    Species.MAROWAK.value,
+    Species.HITMONLEE.value,
+    Species.HITMONCHAN.value,
+    Species.LICKITUNG.value,
+    Species.RHYHORN.value,
+    Species.RHYDON.value,
+    Species.CHANSEY.value,
+    Species.KANGASKHAN.value,
+    Species.ELECTABUZZ.value,
+    Species.MAGMAR.value,
+    Species.PINSIR.value,
+    Species.TAUROS.value,
+    Species.GYARADOS.value,
+    Species.LAPRAS.value,
+    Species.SNORLAX.value,
+    Species.DRAGONITE.value,
+    Species.MEWTWO.value,
+    Species.MEW.value,
+}
+
+MAX_ITEM_CAPACITY = 20
+# Starts at 0x1
+
+
+class ItemsThatGuy(Enum):
+    MASTER_BALL = 0x01
+    ULTRA_BALL = 0x02
+    GREAT_BALL = 0x03
+    POKE_BALL = 0x04
+    TOWN_MAP = 0x05
+    BICYCLE = 0x06
+    SURFBOARD = 0x07  #
+    SAFARI_BALL = 0x08
+    POKEDEX = 0x09
+    MOON_STONE = 0x0A
+    ANTIDOTE = 0x0B
+    BURN_HEAL = 0x0C
+    ICE_HEAL = 0x0D
+    AWAKENING = 0x0E
+    PARLYZ_HEAL = 0x0F
+    FULL_RESTORE = 0x10
+    MAX_POTION = 0x11
+    HYPER_POTION = 0x12
+    SUPER_POTION = 0x13
+    POTION = 0x14
+    BOULDERBADGE = 0x15
+    CASCADEBADGE = 0x16
+    SAFARI_BAIT = 0x15  # overload
+    SAFARI_ROCK = 0x16  # overload
+    THUNDERBADGE = 0x17
+    RAINBOWBADGE = 0x18
+    SOULBADGE = 0x19
+    MARSHBADGE = 0x1A
+    VOLCANOBADGE = 0x1B
+    EARTHBADGE = 0x1C
+    ESCAPE_ROPE = 0x1D
+    REPEL = 0x1E
+    OLD_AMBER = 0x1F
+    FIRE_STONE = 0x20
+    THUNDER_STONE = 0x21
+    WATER_STONE = 0x22
+    HP_UP = 0x23
+    PROTEIN = 0x24
+    IRON = 0x25
+    CARBOS = 0x26
+    CALCIUM = 0x27
+    RARE_CANDY = 0x28
+    DOME_FOSSIL = 0x29
+    HELIX_FOSSIL = 0x2A
+    SECRET_KEY = 0x2B
+    UNUSED_ITEM = 0x2C  # "?????"
+    BIKE_VOUCHER = 0x2D
+    X_ACCURACY = 0x2E
+    LEAF_STONE = 0x2F
+    CARD_KEY = 0x30
+    NUGGET = 0x31
+    PP_UP_2 = 0x32
+    POKE_DOLL = 0x33
+    FULL_HEAL = 0x34
+    REVIVE = 0x35
+    MAX_REVIVE = 0x36
+    GUARD_SPEC = 0x37
+    SUPER_REPEL = 0x38
+    MAX_REPEL = 0x39
+    DIRE_HIT = 0x3A
+    COIN = 0x3B
+    FRESH_WATER = 0x3C
+    SODA_POP = 0x3D
+    LEMONADE = 0x3E
+    S_S_TICKET = 0x3F
+    GOLD_TEETH = 0x40
+    X_ATTACK = 0x41
+    X_DEFEND = 0x42
+    X_SPEED = 0x43
+    X_SPECIAL = 0x44
+    COIN_CASE = 0x45
+    OAKS_PARCEL = 0x46
+    ITEMFINDER = 0x47
+    SILPH_SCOPE = 0x48
+    POKE_FLUTE = 0x49
+    LIFT_KEY = 0x4A
+    EXP_ALL = 0x4B
+    OLD_ROD = 0x4C
+    GOOD_ROD = 0x4D
+    SUPER_ROD = 0x4E
+    PP_UP = 0x4F
+    ETHER = 0x50
+    MAX_ETHER = 0x51
+    ELIXER = 0x52
+    MAX_ELIXER = 0x53
+    FLOOR_B2F = 0x54
+    FLOOR_B1F = 0x55
+    FLOOR_1F = 0x56
+    FLOOR_2F = 0x57
+    FLOOR_3F = 0x58
+    FLOOR_4F = 0x59
+    FLOOR_5F = 0x5A
+    FLOOR_6F = 0x5B
+    FLOOR_7F = 0x5C
+    FLOOR_8F = 0x5D
+    FLOOR_9F = 0x5E
+    FLOOR_10F = 0x5F
+    FLOOR_11F = 0x60
+    FLOOR_B4F = 0x61
+    HM_01 = 0xC4
+    HM_02 = 0xC5
+    HM_03 = 0xC6
+    HM_04 = 0xC7
+    HM_05 = 0xC8
+    TM_01 = 0xC9
+    TM_02 = 0xCA
+    TM_03 = 0xCB
+    TM_04 = 0xCC
+    TM_05 = 0xCD
+    TM_06 = 0xCE
+    TM_07 = 0xCF
+    TM_08 = 0xD0
+    TM_09 = 0xD1
+    TM_10 = 0xD2
+    TM_11 = 0xD3
+    TM_12 = 0xD4
+    TM_13 = 0xD5
+    TM_14 = 0xD6
+    TM_15 = 0xD7
+    TM_16 = 0xD8
+    TM_17 = 0xD9
+    TM_18 = 0xDA
+    TM_19 = 0xDB
+    TM_20 = 0xDC
+    TM_21 = 0xDD
+    TM_22 = 0xDE
+    TM_23 = 0xDF
+    TM_24 = 0xE0
+    TM_25 = 0xE1
+    TM_26 = 0xE2
+    TM_27 = 0xE3
+    TM_28 = 0xE4
+    TM_29 = 0xE5
+    TM_30 = 0xE6
+    TM_31 = 0xE7
+    TM_32 = 0xE8
+    TM_33 = 0xE9
+    TM_34 = 0xEA
+    TM_35 = 0xEB
+    TM_36 = 0xEC
+    TM_37 = 0xED
+    TM_38 = 0xEE
+    TM_39 = 0xEF
+    TM_40 = 0xF0
+    TM_41 = 0xF1
+    TM_42 = 0xF2
+    TM_43 = 0xF3
+    TM_44 = 0xF4
+    TM_45 = 0xF5
+    TM_46 = 0xF6
+    TM_47 = 0xF7
+    TM_48 = 0xF8
+    TM_49 = 0xF9
+    TM_50 = 0xFA
+
+
+KEY_ITEM_IDS = {
+    ItemsThatGuy.TOWN_MAP.value,
+    ItemsThatGuy.BICYCLE.value,
+    ItemsThatGuy.SURFBOARD.value,
+    ItemsThatGuy.SAFARI_BALL.value,
+    ItemsThatGuy.POKEDEX.value,
+    ItemsThatGuy.BOULDERBADGE.value,
+    ItemsThatGuy.CASCADEBADGE.value,
+    ItemsThatGuy.THUNDERBADGE.value,
+    ItemsThatGuy.RAINBOWBADGE.value,
+    ItemsThatGuy.SOULBADGE.value,
+    ItemsThatGuy.MARSHBADGE.value,
+    ItemsThatGuy.VOLCANOBADGE.value,
+    ItemsThatGuy.EARTHBADGE.value,
+    ItemsThatGuy.OLD_AMBER.value,
+    ItemsThatGuy.DOME_FOSSIL.value,
+    ItemsThatGuy.HELIX_FOSSIL.value,
+    ItemsThatGuy.SECRET_KEY.value,
+    # ItemsThatGuy.ITEM_2C.value,
+    ItemsThatGuy.BIKE_VOUCHER.value,
+    ItemsThatGuy.CARD_KEY.value,
+    ItemsThatGuy.S_S_TICKET.value,
+    ItemsThatGuy.GOLD_TEETH.value,
+    ItemsThatGuy.COIN_CASE.value,
+    ItemsThatGuy.OAKS_PARCEL.value,
+    ItemsThatGuy.ITEMFINDER.value,
+    ItemsThatGuy.SILPH_SCOPE.value,
+    ItemsThatGuy.POKE_FLUTE.value,
+    ItemsThatGuy.LIFT_KEY.value,
+    ItemsThatGuy.OLD_ROD.value,
+    ItemsThatGuy.GOOD_ROD.value,
+    ItemsThatGuy.SUPER_ROD.value,
+}
+
+HM_ITEM_IDS = {
+    ItemsThatGuy.HM_01.value,
+    ItemsThatGuy.HM_02.value,
+    ItemsThatGuy.HM_03.value,
+    ItemsThatGuy.HM_04.value,
+    ItemsThatGuy.HM_05.value,
+}
