@@ -1,9 +1,6 @@
 import pufferlib
-from pokemonred_puffer.environment import (
-    EVENT_FLAGS_START,
-    EVENTS_FLAGS_LENGTH,
-    RedGymEnv,
-)
+from pokemonred_puffer.constants import EVENT_FLAGS_START, EVENTS_FLAGS_LENGTH, MUSEUM_TICKET
+from pokemonred_puffer.environment import RedGymEnv
 
 from .. import ram_map, ram_map_leanke
 
@@ -60,9 +57,7 @@ class BaselineRewardEnv(RedGymEnv):
             "bag_menu": self.seen_bag_menu * 0.1,
             "action_bag_menu": self.seen_action_bag_menu * 0.1,
             # "blackout_check": self.blackout_check * 0.001,
-            "rival3": self.reward_config["event"]
-            * int(self.read_m(0xD665) == 4)
-            * self.calculate_event_scaling(),
+            # "rival3": self.reward_config["event"] * int(self.read_m(0xD665) == 4),
         }
 
     def update_max_event_rew(self):
@@ -184,7 +179,6 @@ class TeachCutReplicationEnvFork(BaselineRewardEnv):
             return self.max_level_sum
         else:
             return 15 + (self.max_level_sum - 15) / 4
-
 
 class CutWithObjectRewardsEnv(BaselineRewardEnv):
     def get_game_state_reward(self):

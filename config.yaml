@@ -100,7 +100,7 @@ train:
   vf_clip_coef: 0.1
 
   num_envs: 96
-  envs_per_worker: 1
+  envs_per_worker: 4 # 1
   envs_per_batch: 32
   env_pool: True
 

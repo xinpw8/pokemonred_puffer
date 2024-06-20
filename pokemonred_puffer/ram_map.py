@@ -2521,23 +2521,23 @@ moves_dict = {
 # def read_m(pyboy, addr: str | int) -> int:
 #     if isinstance(addr, str):
 #         _, addr = symbol_lookup(pyboy, addr)
-#     return pyboy.memory[addr]
+#     return pyboy.pyboy.memory[addr]
 
 
 def read_m(pyboy, addr: str | int) -> int:
     if isinstance(addr, str):
-        return pyboy.memory[pyboy.symbol_lookup(addr)[1]]
-    return pyboy.memory[addr]
+        return pyboy.pyboy.memory[pyboy.pyboy.symbol_lookup(addr)[1]]
+    return pyboy.pyboy.memory[addr]
 
 
 def memory(pyboy, addr):
-    return pyboy.memory[addr]
+    return pyboy.pyboy.memory[addr]
 
 
 def read_short(pyboy, addr: str | int) -> int:
     if isinstance(addr, str):
         _, addr = symbol_lookup(pyboy, addr)
-    data = pyboy.memory[addr : addr + 2]
+    data = pyboy.pyboy.memory[addr : addr + 2]
     return (data[0] << 8) + data[1]
 
 
@@ -2665,8 +2665,8 @@ def relocate(pyboy, y, x):
 
 def read_party(pyboy):
     _, addr = symbol_lookup(pyboy, "wPartySpecies")
-    party_length = pyboy.memory[symbol_lookup(pyboy, ("wPartyCount")[1])]
-    return pyboy.memory[addr : addr + party_length]
+    party_length = pyboy.pyboy.memory[symbol_lookup(pyboy, ("wPartyCount")[1])]
+    return pyboy.pyboy.memory[addr : addr + party_length]
 
 
 def party(pyboy):
@@ -2908,7 +2908,7 @@ def read_bit(pyboy, addr: str | int, bit: int) -> bool:
 
 
 def symbol_lookup(pyboy, symbol: str) -> tuple[int, int]:
-    return pyboy.symbol_lookup(symbol)
+    return pyboy.pyboy.symbol_lookup(symbol)
 
 
 @staticmethod
@@ -2922,7 +2922,7 @@ def mem_val(pyboy, addr):
 
 
 def write_mem(pyboy, addr, value):
-    mem = pyboy.memory[addr] = value
+    mem = pyboy.pyboy.memory[addr] = value
     return mem
 
 
