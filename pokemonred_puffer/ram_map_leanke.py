@@ -1170,10 +1170,22 @@ def safari(game):
     return sum([gave_gold_teeth, safari_game_over, in_safari_zone])
 
 def monitor_safari_events(game):
+    r, c, map_n = position(game)
+    QUEST = 1
+    EVENT = 1
     return {
-        "gave_gold_teeth": QUEST * int(read_bit(game, 0xD78E, 1)),
-        "safari_game_over": EVENT * int(read_bit(game, 0xD790, 6)),
-        "in_safari_zone": EVENT * int(read_bit(game, 0xD790, 7)),
+        "gave_gold_teeth": QUEST * int(read_bit(game, 0xD78E, 1)) or 0,
+        "safari_game_over": EVENT * int(read_bit(game, 0xD790, 6)) or 0,
+        "in_safari_zone": EVENT * int(read_bit(game, 0xD790, 7)) or 0,
+        "in_safari_west": EVENT * int(map_n == 217) or 0,
+        "in_safari_east": EVENT * int(map_n == 218) or 0,
+        "in_safari_north": EVENT * int(map_n == 219) or 0,
+        "in_safari_south": EVENT * int(map_n == 220) or 0,
+        "in_safari_rest_house_south": EVENT * int(map_n == 221) or 0,
+        "in_safari_secret_house": EVENT * int(map_n == 222) or 0,
+        "in_safari_rest_house": EVENT * int(map_n == 223) or 0,
+        "in_safari_rest_house_east": EVENT * int(map_n == 224) or 0,
+        "in_safari_rest_house_north": EVENT * int(map_n == 225) or 0,
     }
 
 def dojo(game):

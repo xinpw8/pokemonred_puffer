@@ -39,7 +39,7 @@ env:
   print_rewards: True
   video_dir: video
   state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
-  init_state: Bulbasaur
+  init_state: game_corner_by_poster
   action_freq: 24 # 24
   max_steps: 20480 # 20480 # 2048
   save_video: False
@@ -112,7 +112,7 @@ train:
   overlay_interval: 50 # 50 # 100
   cpu_offload: True
   pool_kernel: [0]
-  load_optimizer_state: True
+  load_optimizer_state: False
 
   # swarm_frequency: 500
   # swarm_keep_pct: .8
@@ -211,7 +211,7 @@ rewards:
       gym_8_events: 5.0
       dojo_events: 5.0
       snorlax_events: 5.0
-      safari_events: 5.0
+      safari_events: 25.0 # 5
       mansion_events: 5.0
       lab_events: 5.0
       exp_bonus_multiplier: 1.0
@@ -219,11 +219,11 @@ rewards:
       bonus_exploration_after_completion: 0.00
       bonus_exploration_else_values: 0.00
       rubbed_captains_back: 10.0
-      beat_rocket_hideout_giovanni: 10.0
+      beat_rocket_hideout_giovanni: 20.0 # 10 (low)
       rocket_hideout_events: 5.0
-      pokemon_tower_events: 5.0
+      pokemon_tower_events: 10 # 5 (only 40%)
       rescued_mr_fujii: 10.0
-      silph_co_events: 10.0 # 5
+      silph_co_events: 2.50 # 5 (too much b4)
       beat_silph_co_giovanni: 10.0
       got_poke_flute: 10.0
       has_lemonade_in_bag: 20.0

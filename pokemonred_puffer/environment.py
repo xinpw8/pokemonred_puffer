@@ -1025,6 +1025,8 @@ class RedGymEnv(Env):
         self.levels = [
             self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
         ]
+        safari_events = ram_map_leanke.monitor_safari_events(self.pyboy)
+        
         return {
             "stats": {
                 "step": self.get_global_steps(),  # self.step_count + self.reset_count * self.max_steps,
@@ -1099,11 +1101,8 @@ class RedGymEnv(Env):
                 ],
                 "got_hitmonlee": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonlee"],
                 "got_hitmonchan": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonchan"],
-                "beat_rocket_hideout_giovanni": ram_map_leanke.monitor_hideout_events(self.pyboy)[
-                    "beat_rocket_hideout_giovanni"
-                ],
                 "rescued_mr_fuji": int(self.read_bit(0xD7E0, 7)),
-                "beat_silph_co_giovanni": int(self.read_bit(0xD7E1, 0)),
+                "beat_silph_co_giovanni": int(self.read_bit(0xD838, 7)),
                 "got_poke_flute": int(self.read_bit(0xD76C, 0)),
                 "has_lemonade_in_bag": self.has_lemonade_in_bag,
                 "has_fresh_water_in_bag": self.has_fresh_water_in_bag,
@@ -1112,6 +1111,7 @@ class RedGymEnv(Env):
                 "has_lift_key_in_bag": self.has_lift_key_in_bag,
                 "has_pokedoll_in_bag": self.has_pokedoll_in_bag,
                 "has_bicycle_in_bag": self.has_bicycle_in_bag,
+                **safari_events
             },
             "reward": self.get_game_state_reward(),
             "reward/reward_sum": sum(self.get_game_state_reward().values()),
