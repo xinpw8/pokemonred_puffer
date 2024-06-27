@@ -330,7 +330,7 @@ ALL_HEALABLE_ITEM_IDS = [  # from worst to best, so that it will consume the wor
     0x53,  # MAX_ELIXER
 ]
 
-ALL_GOOD_ITEMS = ALL_KEY_ITEMS + ALL_POKEBALL_IDS + ALL_HEALABLE_ITEM_IDS + ALL_HM_IDS
+ALL_GOOD_ITEMS = ALL_KEY_ITEMS + ALL_HM_IDS  # + ALL_POKEBALL_IDS + ALL_HEALABLE_ITEM_IDS
 
 GOOD_ITEMS_PRIORITY = [  # from worst to best, so that it will toss the worst first
     0x04,  # POKE_BALL
@@ -7632,6 +7632,11 @@ TM_HM_MOVES = set(
     ]
 )
 
+# 0xC4 CUT: SS Anne (from Captain)
+# 0xC5 FLY: Route 16 (from girl north of Cycling Road)
+# 0xC6 SURF: Safari Zone (from man in Secret House)
+# 0xC7 STRENGTH: Fuchsia City (from Safari Zone Warden after returning Gold Teeth)
+# 0xC8 FLASH: Route 2 (from Professor Oak's aide in building south of Diglett's Tunnel, after catching 10 Pokemon)
 HM_ITEM_IDS = set([0xC4, 0xC5, 0xC6, 0xC7, 0xC8])
 
 RESET_MAP_IDS = set(
@@ -7692,6 +7697,7 @@ VALID_ACTIONS = [
     WindowEvent.PRESS_BUTTON_A,
     WindowEvent.PRESS_BUTTON_B,
     WindowEvent.PRESS_BUTTON_START,
+    WindowEvent.PASS,
 ]
 
 VALID_RELEASE_ACTIONS = [
@@ -7702,6 +7708,7 @@ VALID_RELEASE_ACTIONS = [
     WindowEvent.RELEASE_BUTTON_A,
     WindowEvent.RELEASE_BUTTON_B,
     WindowEvent.RELEASE_BUTTON_START,
+    WindowEvent.PASS,
 ]
 
 VALID_ACTIONS_STR = ["down", "left", "right", "up", "a", "b", "start"]
@@ -8578,7 +8585,6 @@ STRENGTH_SOLUTIONS[(63, 20, 27, 22, 16, 194)] = ["DOWN", "RIGHT"] + STRENGTH_SOL
     (63, 20, 27, 23, 17, 194)
 ]
 
-from enum import Enum
 
 
 class Tilesets(Enum):
@@ -8606,7 +8612,8 @@ class Tilesets(Enum):
     CLUB = 21
     FACILITY = 22
     PLATEAU = 23
-    
+
+
 TM_HM_MOVES = {
     5,  # Mega punch
     0xD,  # Razor wind
@@ -8809,7 +8816,8 @@ class FieldMoves(Enum):
     DIG = 7
     TELEPORT = 8
     SOFTBOILED = 9
-    
+
+
 class TmHmMoves(Enum):
     MEGA_PUNCH = (0x5,)
     RAZOR_WIND = 0xD
@@ -9060,6 +9068,7 @@ class Species(Enum):
     WEEPINBELL = 0xBD
     VICTREEBEL = 0xBE
 
+
 CUT_SPECIES_IDS = {
     Species.BULBASAUR.value,
     Species.IVYSAUR.value,
@@ -9193,6 +9202,23 @@ STRENGTH_SPECIES_IDS = {
     Species.MEW.value,
 }
 
+FLY_SPECIES_IDS = {
+    Species.PIDGEY.value,
+    Species.PIDGEOTTO.value,
+    Species.PIDGEOT.value,
+    Species.SPEAROW.value,
+    Species.FEAROW.value,
+    Species.FARFETCHD.value,
+    Species.DODUO.value,
+    Species.DODRIO.value,
+    Species.ARTICUNO.value,
+    Species.ZAPDOS.value,
+    Species.MOLTRES.value,
+    Species.DRAGONITE.value,
+    Species.MEW.value,
+}
+
+
 MAX_ITEM_CAPACITY = 20
 # Starts at 0x1
 
@@ -9206,7 +9232,7 @@ class ItemsThatGuy(Enum):
     BICYCLE = 0x06
     SURFBOARD = 0x07  #
     SAFARI_BALL = 0x08
-    POKEDEX = 0x09
+    # POKEDEX = 0x09
     MOON_STONE = 0x0A
     ANTIDOTE = 0x0B
     BURN_HEAL = 0x0C
@@ -9218,16 +9244,16 @@ class ItemsThatGuy(Enum):
     HYPER_POTION = 0x12
     SUPER_POTION = 0x13
     POTION = 0x14
-    BOULDERBADGE = 0x15
-    CASCADEBADGE = 0x16
+    # BOULDERBADGE = 0x15
+    # CASCADEBADGE = 0x16
     SAFARI_BAIT = 0x15  # overload
     SAFARI_ROCK = 0x16  # overload
-    THUNDERBADGE = 0x17
-    RAINBOWBADGE = 0x18
-    SOULBADGE = 0x19
-    MARSHBADGE = 0x1A
-    VOLCANOBADGE = 0x1B
-    EARTHBADGE = 0x1C
+    # THUNDERBADGE = 0x17
+    # RAINBOWBADGE = 0x18
+    # SOULBADGE = 0x19
+    # MARSHBADGE = 0x1A
+    # VOLCANOBADGE = 0x1B
+    # EARTHBADGE = 0x1C
     ESCAPE_ROPE = 0x1D
     REPEL = 0x1E
     OLD_AMBER = 0x1F
@@ -9354,20 +9380,44 @@ class ItemsThatGuy(Enum):
     TM_50 = 0xFA
 
 
+USEFUL_ITEMS = {
+    ItemsThatGuy.LEMONADE,
+    ItemsThatGuy.FRESH_WATER,
+    ItemsThatGuy.SODA_POP,
+    ItemsThatGuy.BICYCLE,
+    ItemsThatGuy.BIKE_VOUCHER,
+}
+
+REQUIRED_ITEMS = {
+    ItemsThatGuy.SECRET_KEY,
+    # ItemsThatGuy.ITEM_2C,
+    ItemsThatGuy.CARD_KEY,
+    ItemsThatGuy.S_S_TICKET,
+    ItemsThatGuy.GOLD_TEETH,
+    ItemsThatGuy.OAKS_PARCEL,
+    ItemsThatGuy.SILPH_SCOPE,
+    ItemsThatGuy.POKE_FLUTE,
+    ItemsThatGuy.LIFT_KEY,
+    ItemsThatGuy.HM_01,
+    ItemsThatGuy.HM_03,
+    ItemsThatGuy.HM_04,
+}
+
+
 KEY_ITEM_IDS = {
     ItemsThatGuy.TOWN_MAP.value,
     ItemsThatGuy.BICYCLE.value,
     ItemsThatGuy.SURFBOARD.value,
     ItemsThatGuy.SAFARI_BALL.value,
-    ItemsThatGuy.POKEDEX.value,
-    ItemsThatGuy.BOULDERBADGE.value,
-    ItemsThatGuy.CASCADEBADGE.value,
-    ItemsThatGuy.THUNDERBADGE.value,
-    ItemsThatGuy.RAINBOWBADGE.value,
-    ItemsThatGuy.SOULBADGE.value,
-    ItemsThatGuy.MARSHBADGE.value,
-    ItemsThatGuy.VOLCANOBADGE.value,
-    ItemsThatGuy.EARTHBADGE.value,
+    # ItemsThatGuy.POKEDEX.value,
+    # ItemsThatGuy.BOULDERBADGE.value,
+    # ItemsThatGuy.CASCADEBADGE.value,
+    # ItemsThatGuy.THUNDERBADGE.value,
+    # ItemsThatGuy.RAINBOWBADGE.value,
+    # ItemsThatGuy.SOULBADGE.value,
+    # ItemsThatGuy.MARSHBADGE.value,
+    # ItemsThatGuy.VOLCANOBADGE.value,
+    # ItemsThatGuy.EARTHBADGE.value,
     ItemsThatGuy.OLD_AMBER.value,
     ItemsThatGuy.DOME_FOSSIL.value,
     ItemsThatGuy.HELIX_FOSSIL.value,
@@ -9395,3 +9445,430 @@ HM_ITEM_IDS = {
     ItemsThatGuy.HM_04.value,
     ItemsThatGuy.HM_05.value,
 }
+
+
+STRENGTH_SOLUTIONS = {}
+
+###################
+# SEAFOAM ISLANDS #
+###################
+
+# Seafoam 1F Left
+STRENGTH_SOLUTIONS[(63, 14, 22, 18, 11, 192)] = [
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "RIGHT",
+    "UP",
+    "LEFT",
+]
+STRENGTH_SOLUTIONS[(63, 14, 22, 19, 10, 192)] = ["DOWN", "LEFT"] + STRENGTH_SOLUTIONS[
+    (63, 14, 22, 18, 11, 192)
+]
+STRENGTH_SOLUTIONS[(63, 14, 22, 18, 9, 192)] = ["RIGHT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 14, 22, 19, 10, 192)
+]
+STRENGTH_SOLUTIONS[(63, 14, 22, 17, 10, 192)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 14, 22, 18, 9, 192)
+]
+
+# Seafoam 1F right
+STRENGTH_SOLUTIONS[(63, 11, 30, 26, 8, 192)] = [
+    "UP",
+    "RIGHT",
+    "UP",
+    "RIGHT",
+    "UP",
+    "UP",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+]
+STRENGTH_SOLUTIONS[(63, 11, 30, 27, 7, 192)] = ["DOWN", "LEFT"] + STRENGTH_SOLUTIONS[
+    (63, 11, 30, 26, 8, 192)
+]
+STRENGTH_SOLUTIONS[(63, 11, 30, 26, 6, 192)] = ["RIGHT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 11, 30, 27, 7, 192)
+]
+STRENGTH_SOLUTIONS[(63, 11, 30, 25, 7, 192)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 11, 30, 26, 6, 192)
+]
+
+# Seafoam B1 left
+
+STRENGTH_SOLUTIONS[(63, 10, 21, 16, 6, 159)] = ["RIGHT"]
+STRENGTH_SOLUTIONS[(63, 10, 21, 17, 5, 159)] = ["LEFT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 10, 21, 16, 6, 159)
+]
+STRENGTH_SOLUTIONS[(63, 10, 21, 17, 7, 159)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 10, 21, 16, 6, 159)
+]
+
+# Seafoam B1 right
+
+STRENGTH_SOLUTIONS[(63, 10, 26, 21, 6, 159)] = ["RIGHT"]
+STRENGTH_SOLUTIONS[(63, 10, 26, 22, 5, 159)] = ["LEFT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 10, 26, 21, 6, 159)
+]
+STRENGTH_SOLUTIONS[(63, 10, 26, 22, 7, 159)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 10, 26, 21, 6, 159)
+]
+
+# Seafoam B2 left
+
+STRENGTH_SOLUTIONS[(63, 10, 22, 17, 6, 160)] = ["RIGHT"]
+STRENGTH_SOLUTIONS[(63, 10, 22, 18, 5, 160)] = ["LEFT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 10, 22, 17, 6, 160)
+]
+STRENGTH_SOLUTIONS[(63, 10, 22, 18, 7, 160)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 10, 22, 17, 6, 160)
+]
+
+# Seafoam B2 right
+
+STRENGTH_SOLUTIONS[(63, 10, 27, 24, 6, 160)] = ["LEFT"]
+STRENGTH_SOLUTIONS[(63, 10, 27, 23, 7, 160)] = ["RIGHT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 10, 27, 24, 6, 160)
+]
+
+# We skip seafoam b3 since that is for articuno
+# TODO: Articuno
+
+################
+# VICTORY ROAD #
+################
+
+# 1F Switch 1
+STRENGTH_SOLUTIONS[(63, 19, 9, 5, 14, 108)] = [
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "LEFT",
+    "DOWN",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "DOWN",
+    "RIGHT",
+    "RIGHT",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "LEFT",
+    "UP",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "DOWN",
+    "RIGHT",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "UP",
+    "UP",
+    "UP",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "RIGHT",
+    "UP",
+    "RIGHT",
+    "DOWN",
+]
+
+STRENGTH_SOLUTIONS[(63, 19, 9, 4, 15, 108)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 19, 9, 5, 14, 108)
+]
+STRENGTH_SOLUTIONS[(63, 19, 9, 5, 16, 108)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 19, 9, 4, 15, 108)
+]
+
+# 2F Switch 1
+STRENGTH_SOLUTIONS[(63, 18, 8, 5, 14, 194)] = [
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "LEFT",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "RIGHT",
+    "DOWN",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+]
+
+STRENGTH_SOLUTIONS[(63, 18, 8, 4, 13, 194)] = ["RIGHT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 18, 8, 5, 14, 194)
+]
+STRENGTH_SOLUTIONS[(63, 18, 8, 3, 14, 194)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 18, 8, 4, 13, 194)
+]
+STRENGTH_SOLUTIONS[(63, 18, 8, 4, 15, 194)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 18, 8, 3, 14, 194)
+]
+
+# 3F Switch 3
+STRENGTH_SOLUTIONS[(63, 19, 26, 22, 4, 198)] = [
+    "UP",
+    "UP",
+    "RIGHT",
+    "UP",
+    "UP",
+    "LEFT",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "UP",
+    "RIGHT",
+    "UP",
+    "UP",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "LEFT",
+    "DOWN",
+    "DOWN",
+    "RIGHT",
+    "DOWN",
+    "DOWN",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "UP",
+    "LEFT",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "DOWN",
+    "LEFT",
+    "DOWN",
+    "RIGHT",
+    "RIGHT",
+]
+
+STRENGTH_SOLUTIONS[(63, 19, 26, 23, 3, 198)] = ["DOWN", "LEFT"] + STRENGTH_SOLUTIONS[
+    (63, 19, 26, 22, 4, 198)
+]
+STRENGTH_SOLUTIONS[(63, 19, 26, 22, 2, 198)] = ["RIGHT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 19, 26, 23, 3, 198)
+]
+STRENGTH_SOLUTIONS[(63, 19, 26, 21, 3, 198)] = ["UP", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 19, 26, 22, 2, 198)
+]
+
+# 3F Boulder in hole
+STRENGTH_SOLUTIONS[(63, 16, 17, 21, 15, 198)] = ["RIGHT", "RIGHT", "RIGHT"]
+STRENGTH_SOLUTIONS[(63, 16, 17, 22, 16, 198)] = ["LEFT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 16, 17, 21, 15, 198)
+]
+STRENGTH_SOLUTIONS[(63, 16, 17, 22, 14, 198)] = ["LEFT", "DOWN"] + STRENGTH_SOLUTIONS[
+    (63, 16, 17, 21, 15, 198)
+]
+
+
+# 2F final switch
+STRENGTH_SOLUTIONS[(63, 20, 27, 24, 16, 194)] = [
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+    "LEFT",
+]
+
+STRENGTH_SOLUTIONS[(63, 20, 27, 23, 17, 194)] = ["RIGHT", "UP"] + STRENGTH_SOLUTIONS[
+    (63, 20, 27, 24, 16, 194)
+]
+STRENGTH_SOLUTIONS[(63, 20, 27, 22, 16, 194)] = ["DOWN", "RIGHT"] + STRENGTH_SOLUTIONS[
+    (63, 20, 27, 23, 17, 194)
+]
+
+
+class Tilesets(Enum):
+    OVERWORLD = 0
+    REDS_HOUSE_1 = 1
+    MART = 2
+    FOREST = 3
+    REDS_HOUSE_2 = 4
+    DOJO = 5
+    POKECENTER = 6
+    GYM = 7
+    HOUSE = 8
+    FOREST_GATE = 9
+    MUSEUM = 10
+    UNDERGROUND = 11
+    GATE = 12
+    SHIP = 13
+    SHIP_PORT = 14
+    CEMETERY = 15
+    INTERIOR = 16
+    CAVERN = 17
+    LOBBY = 18
+    MANSION = 19
+    LAB = 20
+    CLUB = 21
+    FACILITY = 22
+    PLATEAU = 23

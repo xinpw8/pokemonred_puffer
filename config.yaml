@@ -5,30 +5,33 @@ wandb:
 
 debug:
   env:
-    headless: True
+    headless: False
     stream_wrapper: False
-    init_state: Bulbasaur
-    max_steps: 24480
+    init_state: victory_road
+    max_steps: 16
+    log_frequency: 1
     disable_wild_encounters: True
-    disable_ai_actions: False
+    disable_ai_actions: True
   train:
-    device: cuda # cpu
-    compile: True
-    compile_mode: "reduce-overhead"
-    num_envs: 16
-    envs_per_worker: 1
-    envs_per_batch: 1
-    batch_size: 16
+    device: cpu
+    compile: False
+    compile_mode: default
+    num_envs: 1
+    num_workers: 1
+    env_batch_size: 4
+    env_pool: True
+    zero_copy: False
+    batch_size: 4
+    minibatch_size: 4
     batch_rows: 4
     bptt_horizon: 2
-    total_timesteps: 500_000_000_000
-    save_checkpoint: False
+    total_timesteps: 100_000_000
+    save_checkpoint: True
     checkpoint_interval: 4
-    save_overlay: True
+    save_overlay: False
     overlay_interval: 4
-    verbose: True
-    env_pool: True
-    log_frequency: 5000
+    verbose: False
+    env_pool: False
     load_optimizer_state: False
     # swarm_frequency: 10
     # swarm_keep_pct: .1
@@ -39,9 +42,9 @@ env:
   print_rewards: True
   video_dir: video
   state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
-  init_state: game_corner_by_poster
+  init_state: game_corner_by_poster # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
-  max_steps: 20480 # 20480 # 2048
+  max_steps: 20480 # 40960 # 20480 # 20480 # 2048
   save_video: False
   fast_video: False
   frame_stacks: 1
@@ -62,15 +65,21 @@ env:
   disable_wild_encounters: True
   disable_ai_actions: False
   skip_rocket_hideout_bool: True
+  skip_silph_co_bool: True
+  skip_safari_zone_bool: True
   put_poke_flute_in_bag_bool: True
   put_silph_scope_in_bag_bool: True
+  put_bicycle_in_bag_bool: True
+  auto_remove_all_nonuseful_items: True
   furthest_states_dir: saved_states/furthest_states
   save_each_env_state_dir: saved_states/save_each_env_states
-  load_states_on_start_dir: saved_states/load_states_on_start
+  load_states_on_start_dir: saved_states/general_saved_states # load_states_on_start
+  general_saved_state_dir: saved_states/general_saved_states
   save_each_env_state_freq: 5000000
   save_all_env_states_bool: True
   save_furthest_map_states: True
-  load_states_on_start: False
+  save_state: False
+  load_states_on_start: True # False
   load_furthest_map_n_on_reset: False
 
 train:
@@ -100,16 +109,16 @@ train:
   vf_clip_coef: 0.1
 
   num_envs: 96
-  envs_per_worker: 1
+  envs_per_worker: 1 # 1
   envs_per_batch: 32
   env_pool: True
 
   verbose: True
-  data_dir: data
+  data_dir: saved_run_data
   save_checkpoint: True
   checkpoint_interval: 200
   save_overlay: True
-  overlay_interval: 50 # 50 # 100
+  overlay_interval: 100
   cpu_offload: True
   pool_kernel: [0]
   load_optimizer_state: False
@@ -185,8 +194,8 @@ rewards:
 
   baseline.CutWithObjectRewardsEnv:
     reward:
-      event: 1.0
-      bill_saved: 5.0
+      event: 0.5 #  1.0
+      bill_saved:  0 # 5.0
       seen_pokemon: 4.0
       caught_pokemon: 4.0
       moves_obtained: 4.0
@@ -200,39 +209,45 @@ rewards:
       pokemon_menu: 0.0
       stats_menu: 0.0
       bag_menu: 0.0
-      rocket_hideout_found: 10.0
+      rocket_hideout_found:  0 # 10.0
       event_scale: 0.04248 # experimentally-determined
-      rock_tunnel_events: 5.0
-      gym_3_events: 5.0
-      gym_4_events: 5.0
-      gym_5_events: 5.0
-      gym_6_events: 5.0
-      gym_7_events: 5.0
-      gym_8_events: 5.0
-      dojo_events: 5.0
-      snorlax_events: 5.0
-      safari_events: 25.0 # 5
+      rock_tunnel_events:  0 # 1.0 # 5.0
+      gym_3_events: 0.0 # 5.0
+      gym_4_events: 0.0 # 5.0
+      gym_5_events: 25.0 # 5
+      gym_6_events: 25.0 # 5
+      gym_7_events: 25.0 # 5
+      gym_8_events: 25.0 # 5
+      dojo_events:  2.5 # 0 # 2.50 # 5.0
+      snorlax_events:  0 # 15.0 # 5.0
+      safari_events: 50.0 # 25.0 # 5
       mansion_events: 5.0
       lab_events: 5.0
-      exp_bonus_multiplier: 1.0
+      exp_bonus_multiplier: 0.20 # 1.0
       bonus_exploration_before_completion: 0.04
       bonus_exploration_after_completion: 0.00
       bonus_exploration_else_values: 0.00
-      rubbed_captains_back: 10.0
-      beat_rocket_hideout_giovanni: 20.0 # 10 (low)
-      rocket_hideout_events: 5.0
-      pokemon_tower_events: 10 # 5 (only 40%)
-      rescued_mr_fujii: 10.0
-      silph_co_events: 2.50 # 5 (too much b4)
-      beat_silph_co_giovanni: 10.0
-      got_poke_flute: 10.0
-      has_lemonade_in_bag: 20.0
-      has_fresh_water_in_bag: 20.0
-      has_soda_pop_in_bag: 20.0
-      has_silph_scope_in_bag: 20.0
-      has_lift_key_in_bag: 20.0
-      has_pokedoll_in_bag: 20.0
-      has_bicycle_in_bag: 20.0
+      rubbed_captains_back: 0.00 # 10.0
+      beat_rocket_hideout_giovanni: 0.00 # 20.0 # 10 (low)
+      rocket_hideout_events: 0.00 # 5.0
+      pokemon_tower_events: 15 # 0 # 15.0 # 10 # 5 (only 40%)
+      rescued_mr_fuji_1:  15 # 0 # 15.0 # 20.0 # 10.0
+      rescued_mr_fuji_2: 15 # 0 # 15.0 # 10.0
+      silph_co_events: 0.00 # 0.025 # 2.50 too much still # 5 (too much b4)
+      beat_silph_co_giovanni: 1 # 0 # 5.0 # 20.0 # 10
+      got_poke_flute: 1 # 20.0 # 10.0
+      has_lemonade_in_bag: 1 # 20.0
+      has_fresh_water_in_bag: 1 # 20.0
+      has_soda_pop_in_bag: 1 # 20.0
+      has_silph_scope_in_bag: 1 # 0.00 # 20.0
+      has_lift_key_in_bag: 0.00 # 20.0
+      has_pokedoll_in_bag: 0 # 20.0
+      has_bicycle_in_bag: 1 # 20.0
+      skip_silph_co_entered_silph_co_penalty: -0.10 # penalty for entering silph co
+      seen_action_bag_menu: 0.10
+      required_item: 5.0
+      required_event: 5.0
+      useful_item: 1.0
 
 
 

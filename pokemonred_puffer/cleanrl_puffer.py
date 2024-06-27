@@ -27,6 +27,7 @@ from pokemonred_puffer.eval import make_pokemon_red_overlay
 from pokemonred_puffer.global_map import GLOBAL_MAP_SHAPE
 
 import logging
+
 # Configure logging
 logging.basicConfig(
     filename="diagnostics.log",  # Name of the log file
@@ -34,8 +35,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
     level=logging.INFO,  # Log level
 )
-
-
 
 
 @pufferlib.dataclass
@@ -545,6 +544,9 @@ class CleanPuffeRL:
                     overlay = make_pokemon_red_overlay(np.stack(v, axis=0))
                     if self.wandb is not None:
                         self.stats["Media/aggregate_exploration_map"] = self.wandb.Image(overlay)
+                        logging.info(
+                            f"cleanrl_puffer.py: 'pokemon_exploration_map' in k {config.update_epochs}; logged map. updates#: {self.update}; overlay_interval: {config.overlay_interval}"
+                        )
             # elif "cut_exploration_map" in k and config.save_overlay is True:
             #     if self.update % config.overlay_interval == 0:
             #         overlay = make_pokemon_red_overlay(np.stack(v, axis=0))
@@ -553,13 +555,17 @@ class CleanPuffeRL:
             #                 overlay
             #             )
             elif "state" in k:
+                logging.info(f"cleanrl_puffer.py: 'state' in k {config.update_epochs}")
                 pass
             else:
                 try:  # TODO: Better checks on log data types
                     # self.stats[f"Histogram/{k}"] = self.wandb.Histogram(v, num_bins=16)
                     self.stats[k] = np.mean(v)
                     self.max_stats[k] = np.max(v)
-                except:  # noqa
+                except Exception as e:
+                    logging.info(
+                        f"Update#{self.update}: Error in cleanrl_puffer.py, LINE 561 (try: self.stats[k] = np.mean(v)): {e}"
+                    )
                     continue
 
         if config.verbose:

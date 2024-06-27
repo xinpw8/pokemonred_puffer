@@ -11,20 +11,33 @@ BADGE_1_ADDR = 0xD356
 WCUTTILE = 0xCD4D  # 61 if Cut used; 0 default. resets to default on map_n change or battle.
 
 
-GYM_LEADER = 5
-GYM_TRAINER = 2
-GYM_TASK = 2
-TRAINER = 1
-HM = 5
-TM = 2
-TASK = 2
-POKEMON = 3
-ITEM = 5
-BILL_CAPT = 5
-RIVAL = 3
-QUEST = 5
+# GYM_LEADER = 5
+# GYM_TRAINER = 2
+# GYM_TASK = 2
+# TRAINER = 1
+# HM = 5
+# TM = 2
+# TASK = 2
+# POKEMON = 3
+# ITEM = 5
+# BILL_CAPT = 5
+# RIVAL = 3
+# QUEST = 5
 EVENT = 1
 BAD = -1
+
+GYM_TASK = 1
+TRAINER = 1
+HM = 1
+TM = 1
+TASK = 1
+POKEMON = 1
+ITEM = 1
+BILL_CAPT = 1
+RIVAL = 1
+GYM_TRAINER = 1
+QUEST = 1
+GYM_LEADER = 1
 
 
 def bulba(game):
@@ -152,9 +165,9 @@ def silph_co(game):
 
 # BET ADDED
 def monitor_silph_co_events(game):
-    TRAINER = 1
-    QUEST = 1
-    GYM_LEADER = 1
+    # TRAINER = 1
+    # QUEST = 5
+    # GYM_LEADER = 15
 
     events_status = {
         "beat_silph_co_2f_trainer_0": TRAINER * int(read_bit(game, 0xD825, 2)),
@@ -902,6 +915,7 @@ def snorlax(game):
         [route12_snorlax_fight, route12_snorlax_beat, route16_snorlax_fight, route16_snorlax_beat]
     )
 
+
 def monitor_snorlax_events(game):
     return {
         "route12_snorlax_fight": POKEMON * int(read_bit(game, 0xD7D8, 6)),
@@ -909,6 +923,7 @@ def monitor_snorlax_events(game):
         "route16_snorlax_fight": POKEMON * int(read_bit(game, 0xD7E0, 0)),
         "route16_snorlax_beat": POKEMON * int(read_bit(game, 0xD7E0, 1)),
     }
+
 
 def hmtm(game):
     # "0xD803-0": "Got Hm01",
@@ -1113,12 +1128,14 @@ def lab(game):
 
     return sum([gave_fossil_to_lab, lab_still_reviving_fossil, lab_handing_over_fossil_mon])
 
+
 def monitor_lab_events(game):
     return {
         "gave_fossil_to_lab": TASK * int(read_bit(game, 0xD7A3, 0)),
         "lab_still_reviving_fossil": TASK * int(read_bit(game, 0xD7A3, 1)),
         "lab_handing_over_fossil_mon": TASK * int(read_bit(game, 0xD7A3, 2)),
     }
+
 
 def mansion(game):
     # "0xD847-1": "Beat Mansion 2 Trainer 0",
@@ -1148,6 +1165,7 @@ def mansion(game):
         ]
     )
 
+
 def monitor_mansion_events(game):
     return {
         "beat_mansion_2_trainer_0": TRAINER * int(read_bit(game, 0xD847, 1)),
@@ -1159,6 +1177,7 @@ def monitor_mansion_events(game):
         "beat_mansion_1_trainer_0": TRAINER * int(read_bit(game, 0xD798, 1)),
     }
 
+
 def safari(game):
     # "0xD78E-1": "Gave Gold Teeth",
     # "0xD790-6": "Safari Game Over",
@@ -1168,6 +1187,7 @@ def safari(game):
     in_safari_zone = EVENT * int(read_bit(game, 0xD790, 7))
 
     return sum([gave_gold_teeth, safari_game_over, in_safari_zone])
+
 
 def monitor_safari_events(game):
     r, c, map_n = position(game)
@@ -1187,6 +1207,7 @@ def monitor_safari_events(game):
         "in_safari_rest_house_east": EVENT * int(map_n == 224) or 0,
         "in_safari_rest_house_north": EVENT * int(map_n == 225) or 0,
     }
+
 
 def dojo(game):
     # "0xD7B1-0": "Defeated Fighting Dojo",
@@ -1496,7 +1517,7 @@ def gym3(game):
 
 def gym4(game):
     # gym 4 Celadon
-    four = GYM_LEADER * int(read_bit(game, 0xD792, 1))
+    four = GYM_LEADER * int(read_bit(game, 0xD77C, 1))  # "0xD77C-1": "Beat Erika",
     g4_1 = GYM_TRAINER * int(read_bit(game, 0xD77C, 2))  # "0xD77C-2": "Beat Celadon Gym Trainer 0",
     g4_2 = GYM_TRAINER * int(read_bit(game, 0xD77C, 3))  # "0xD77C-3": "Beat Celadon Gym Trainer 1",
     g4_3 = GYM_TRAINER * int(read_bit(game, 0xD77C, 4))  # "0xD77C-4": "Beat Celadon Gym Trainer 2",
@@ -1520,7 +1541,7 @@ def gym4(game):
 
 def gym5(game):
     # gym 5 Fuchsia
-    five = GYM_LEADER * int(read_bit(game, 0xD7B3, 1))
+    five = GYM_LEADER * int(read_bit(game, 0xD792, 1))  # "0xD792-1": "Beat Koga",
     g5_1 = GYM_TRAINER * int(read_bit(game, 0xD792, 2))  # "0xD792-2": "Beat Fuchsia Gym Trainer 0",
     g5_2 = GYM_TRAINER * int(read_bit(game, 0xD792, 3))  # "0xD792-3": "Beat Fuchsia Gym Trainer 1",
     g5_3 = GYM_TRAINER * int(read_bit(game, 0xD792, 4))  # "0xD792-4": "Beat Fuchsia Gym Trainer 2",
@@ -1542,7 +1563,7 @@ def gym5(game):
 
 def gym6(game):
     # gym 6 Saffron
-    six = GYM_LEADER * int(read_bit(game, 0xD7B3, 1))
+    six = GYM_LEADER * int(read_bit(game, 0xD7B3, 1))  # "0xD7B3-1": "Beat Sabrina",
     g6_1 = GYM_TRAINER * int(read_bit(game, 0xD7B3, 2))  # "0xD7B3-2": "Beat Saffron Gym Trainer 0",
     g6_2 = GYM_TRAINER * int(read_bit(game, 0xD7B3, 3))  # "0xD7B3-3": "Beat Saffron Gym Trainer 1",
     g6_3 = GYM_TRAINER * int(read_bit(game, 0xD7B3, 4))  # "0xD7B3-4": "Beat Saffron Gym Trainer 2",
@@ -1573,7 +1594,7 @@ def gym7(game):
     # "0xD79C-4": "Cinnabar Gym Gate4 Unlocked",
     # "0xD79C-5": "Cinnabar Gym Gate5 Unlocked",
     # "0xD79C-6": "Cinnabar Gym Gate6 Unlocked",
-    seven = GYM_LEADER * int(read_bit(game, 0xD79A, 1))
+    seven = GYM_LEADER * int(read_bit(game, 0xD79A, 1))  # beat Blaine (Cinnabar)
     g7_1 = GYM_TRAINER * int(
         read_bit(game, 0xD79A, 2)
     )  # "0xD79A-2": "Beat Cinnabar Gym Trainer 0",
@@ -1614,7 +1635,7 @@ def gym8(game):
     # gym 8 Viridian
     # "0xD74C-0": "Viridian Gym Open",
     gym_door = GYM_TASK * int(read_bit(game, 0xD74C, 0))
-    eight = GYM_LEADER * int(read_bit(game, 0xD751, 1))
+    eight = GYM_LEADER * int(read_bit(game, 0xD751, 1))  # beat Giovanni (Viridian)
     g8_1 = GYM_TRAINER * int(
         read_bit(game, 0xD751, 2)
     )  # "0xD751-2": "Beat Viridian Gym Trainer 0",
@@ -1657,7 +1678,7 @@ def monitor_gym3_events(game):
 
 def monitor_gym4_events(game):
     events_status_gym4 = {
-        "four": GYM_LEADER * int(read_bit(game, 0xD792, 1)),
+        "four": GYM_LEADER * int(read_bit(game, 0xD77C, 1)),  # beat Erika (Celadon)
         "g4_1": GYM_TRAINER * int(read_bit(game, 0xD77C, 2)),
         "g4_2": GYM_TRAINER * int(read_bit(game, 0xD77C, 3)),
         "g4_3": GYM_TRAINER * int(read_bit(game, 0xD77C, 4)),
@@ -1671,7 +1692,7 @@ def monitor_gym4_events(game):
 
 def monitor_gym5_events(game):
     events_status_gym5 = {
-        "five": GYM_LEADER * int(read_bit(game, 0xD7B3, 1)),
+        "five": GYM_LEADER * int(read_bit(game, 0xD792, 1)),  # beat Koga (Fuchsia)
         "g5_1": GYM_TRAINER * int(read_bit(game, 0xD792, 2)),
         "g5_2": GYM_TRAINER * int(read_bit(game, 0xD792, 3)),
         "g5_3": GYM_TRAINER * int(read_bit(game, 0xD792, 4)),
@@ -1684,7 +1705,7 @@ def monitor_gym5_events(game):
 
 def monitor_gym6_events(game):
     events_status_gym6 = {
-        "six": GYM_LEADER * int(read_bit(game, 0xD7B3, 1)),
+        "six": GYM_LEADER * int(read_bit(game, 0xD7B3, 1)),  # beat Sabrina (Saffron)
         "g6_1": GYM_TRAINER * int(read_bit(game, 0xD7B3, 2)),
         "g6_2": GYM_TRAINER * int(read_bit(game, 0xD7B3, 3)),
         "g6_3": GYM_TRAINER * int(read_bit(game, 0xD7B3, 4)),
@@ -1698,7 +1719,7 @@ def monitor_gym6_events(game):
 
 def monitor_gym7_events(game):
     events_status_gym7 = {
-        "seven": GYM_LEADER * int(read_bit(game, 0xD79A, 1)),
+        "seven": GYM_LEADER * int(read_bit(game, 0xD79A, 1)),  # beat Blaine (Cinnabar)
         "g7_1": GYM_TRAINER * int(read_bit(game, 0xD79A, 2)),
         "g7_2": GYM_TRAINER * int(read_bit(game, 0xD79A, 3)),
         "g7_3": GYM_TRAINER * int(read_bit(game, 0xD79A, 4)),
@@ -1713,7 +1734,8 @@ def monitor_gym7_events(game):
 def monitor_gym8_events(game):
     events_status_gym8 = {
         "gym_door": GYM_TASK * int(read_bit(game, 0xD74C, 0)),  # "Viridian Gym Open",
-        "eight": GYM_LEADER * int(read_bit(game, 0xD751, 1)),  # Gym Leader
+        "eight": GYM_LEADER
+        * int(read_bit(game, 0xD751, 1)),  # "Beat Viridian Gym Giovanni" (Viridian)
         "g8_1": GYM_TRAINER * int(read_bit(game, 0xD751, 2)),  # "Beat Viridian Gym Trainer 0",
         "g8_2": GYM_TRAINER * int(read_bit(game, 0xD751, 3)),  # "Beat Viridian Gym Trainer 1",
         "g8_3": GYM_TRAINER * int(read_bit(game, 0xD751, 4)),  # "Beat Viridian Gym Trainer 2",
