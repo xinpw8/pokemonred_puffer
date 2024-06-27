@@ -39,9 +39,9 @@ env:
   print_rewards: True
   video_dir: video
   state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
-  init_state: game_corner_by_poster
+  init_state: game_corner_by_poster # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
-  max_steps: 20480 # 20480 # 2048
+  max_steps: 20480 # 40960 # 20480 # 20480 # 2048
   save_video: False
   fast_video: False
   frame_stacks: 1
@@ -62,14 +62,20 @@ env:
   disable_wild_encounters: True
   disable_ai_actions: False
   skip_rocket_hideout_bool: True
+  skip_silph_co_bool: True
+  skip_safari_zone_bool: True
   put_poke_flute_in_bag_bool: True
   put_silph_scope_in_bag_bool: True
+  put_bicycle_in_bag_bool: True
+  auto_remove_all_nonuseful_items: True
   furthest_states_dir: saved_states/furthest_states
   save_each_env_state_dir: saved_states/save_each_env_states
-  load_states_on_start_dir: saved_states/load_states_on_start
+  load_states_on_start_dir: saved_states/general_saved_states # load_states_on_start
+  general_saved_state_dir: saved_states/general_saved_states
   save_each_env_state_freq: 5000000
-  save_all_env_states_bool: True
-  save_furthest_map_states: True
+  save_all_env_states_bool: False
+  save_furthest_map_states: False
+  save_state: False
   load_states_on_start: False
   load_furthest_map_n_on_reset: False
 

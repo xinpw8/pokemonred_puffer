@@ -102,6 +102,7 @@ class RedGymEnv(Env):
         self.auto_solve_strength_puzzles = env_config.auto_solve_strength_puzzles
         self.load_states_on_start = env_config.load_states_on_start
         self.load_states_on_start_dir = env_config.load_states_on_start_dir
+        self.general_saved_state_dir = env_config.general_saved_state_dir
         self.furthest_states_dir = env_config.furthest_states_dir
         self.save_each_env_state_dir = env_config.save_each_env_state_dir
         self.save_furthest_map_states = env_config.save_furthest_map_states
@@ -110,10 +111,15 @@ class RedGymEnv(Env):
         self.disable_ai_actions = env_config.disable_ai_actions
         self.save_each_env_state_freq = env_config.save_each_env_state_freq
         self.save_all_env_states_bool = env_config.save_all_env_states_bool
+        self.save_state = env_config.save_state
         self.use_fixed_x = env_config.fixed_x
         self.skip_rocket_hideout_bool = env_config.skip_rocket_hideout_bool
+        self.skip_silph_co_bool = env_config.skip_silph_co_bool
+        self.skip_safari_zone_bool = env_config.skip_safari_zone_bool
         self.put_poke_flute_in_bag_bool = env_config.put_poke_flute_in_bag_bool
         self.put_silph_scope_in_bag_bool = env_config.put_silph_scope_in_bag_bool
+        self.put_bicycle_in_bag_bool = env_config.put_bicycle_in_bag_bool
+        self.auto_remove_all_nonuseful_items = env_config.auto_remove_all_nonuseful_items
         self.action_space = ACTION_SPACE
         self.levels = 0
         self.state_already_saved = False
@@ -136,6 +142,25 @@ class RedGymEnv(Env):
         self.route_9_completed = False
         self.route_10_completed = False
         self.rock_tunnel_completed = False
+        self.safari_zone_maps = [217, 218, 219, 220, 221, 222, 223, 224, 225]
+        self.last_map = -1
+        self.last_map_gate = -1
+
+        self.safari_event_statuses = {
+            "gave_gold_teeth": False,
+            "safari_game_over": False,
+            "in_safari_zone": False,
+            "in_safari_west": False,
+            "in_safari_east": False,
+            "in_safari_north": False,
+            "in_safari_south": False,
+            "in_safari_rest_house_south": False,
+            "in_safari_secret_house": False,
+            "in_safari_rest_house": False,
+            "in_safari_rest_house_east": False,
+            "in_safari_rest_house_north": False,
+        }
+
         self.bonus_exploration_reward_maps = (
             self.rocket_hideout_maps
             + self.poketower_maps
@@ -168,6 +193,15 @@ class RedGymEnv(Env):
         self.reset_count = 0
         self.all_runs = []
         self.global_step_count = 0
+        
+        self.global_step_count = 0
+        self.silph_co_skipped = 0
+        self.poke_flute_bag_flag = 0
+        self.silph_scope_bag_flag = 0
+        self.strength_bag_flag = 0
+        self.surf_bag_flag = 0
+        self.bicycle_bag_flag = 0
+        self.silph_co_penalty = 0  # a counter that counts times env tries to go into silph co
 
         # Set this in SOME subclasses
         self.metadata = {"render.modes": []}
@@ -1116,23 +1150,55 @@ class RedGymEnv(Env):
         self.levels = [
             self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
         ]
+        # badges = self.read_m("wObtainedBadges")
+        explore_map = self.explore_map
+        explore_map[explore_map > 0] = 1
+
+        _, wBagItems = self.pyboy.symbol_lookup("wBagItems")
+        bag = np.array(self.pyboy.memory[wBagItems : wBagItems + 40], dtype=np.uint8)
+        numBagItems = self.read_m("wNumBagItems")
+        bag[2 * numBagItems :] = 0
+        bag_item_ids = bag[::2]
+
         safari_events = ram_map_leanke.monitor_safari_events(self.pyboy)
-        
+        gym_4_events = ram_map_leanke.monitor_gym4_events(self.pyboy)
+        gym_5_events = ram_map_leanke.monitor_gym5_events(self.pyboy)
+        gym_6_events = ram_map_leanke.monitor_gym6_events(self.pyboy)
+        gym_7_events = ram_map_leanke.monitor_gym7_events(self.pyboy)
+        gym_8_events = ram_map_leanke.monitor_gym8_events(self.pyboy)
+
         return {
+            "stats/step": self.global_step_count,
+            "pokemon_exploration_map": explore_map,
+            "cut_exploration_map": self.cut_explore_map,
             "stats": {
-                "step": self.get_global_steps(),  # self.step_count + self.reset_count * self.max_steps,
+                "step": self.global_step_count,
+                "general_stats": {
                 "max_map_progress": self.max_map_progress,
                 "last_action": action,
+                "deaths": self.died_count,
+                "coord": sum(self.seen_coords.values()),
+                "map_id": np.sum(self.seen_map_ids),
+                "npc": sum(self.seen_npcs.values()),
+                "hidden_obj": sum(self.seen_hidden_objs.values()),
+                "blackout_check": self.blackout_check,
+                "reset_count": self.reset_count,
+                "blackout_count": self.blackout_count,
+                "pokecenter": np.sum(self.pokecenters),
+                "action_hist": self.action_hist,
+                },
+                "party": {
                 "party_count": self.read_m("wPartyCount"),
                 "levels": self.levels,
                 "levels_sum": sum(self.levels),
                 "ptypes": self.read_party(),
                 "hp": self.read_hp_fraction(),
-                "coord": sum(self.seen_coords.values()),  # np.sum(self.seen_global_coords),
-                "map_id": np.sum(self.seen_map_ids),
-                "npc": sum(self.seen_npcs.values()),
-                "hidden_obj": sum(self.seen_hidden_objs.values()),
-                "deaths": self.died_count,
+                "caught_pokemon": int(sum(self.caught_pokemon)),
+                "seen_pokemon": int(sum(self.seen_pokemon)),
+                "moves_obtained": int(sum(self.moves_obtained)),
+                "opponent_level": self.max_opponent_level,
+                },
+                "badges": {
                 "badge": self.get_badges(),
                 "badge_1": int(self.get_badges() >= 1),
                 "badge_2": int(self.get_badges() >= 2),
@@ -1142,13 +1208,35 @@ class RedGymEnv(Env):
                 "badge_6": int(self.get_badges() >= 6),
                 "badge_7": int(self.get_badges() >= 7),
                 "badge_8": int(self.get_badges() >= 8),
-                "event": self.progress_reward["event"],
-                "healr": self.total_heal_health,
-                "action_hist": self.action_hist,
-                "caught_pokemon": int(sum(self.caught_pokemon)),
-                "seen_pokemon": int(sum(self.seen_pokemon)),
-                "moves_obtained": int(sum(self.moves_obtained)),
-                "opponent_level": self.max_opponent_level,
+                },
+                "hms": {
+                "taught_cut": int(self.check_if_party_has_hm(0xF)),
+                "taught_surf": int(self.check_if_party_has_hm(0x39)),
+                "taught_strength": int(self.check_if_party_has_hm(0x46)),
+                "taught_fly": int(self.check_if_party_has_hm(0x48)),
+                "taught_flash": int(self.check_if_party_has_hm(0x10)),
+                },
+                "menu": {
+                "start_menu": self.seen_start_menu,
+                "pokemon_menu": self.seen_pokemon_menu,
+                "stats_menu": self.seen_stats_menu,
+                "bag_menu": self.seen_bag_menu,
+                "action_bag_menu": self.seen_action_bag_menu,
+                },
+                "bag_items": {
+                "bag_item_count": self.read_m(0xD31D),
+                "required_items": {item.name: item.value in bag_item_ids for item in REQUIRED_ITEMS},
+                "useful_items": {item.name: item.value in bag_item_ids for item in USEFUL_ITEMS},
+                "has_lemonade_in_bag": self.has_lemonade_in_bag,
+                "has_fresh_water_in_bag": self.has_fresh_water_in_bag,
+                "has_soda_pop_in_bag": self.has_soda_pop_in_bag,
+                "has_silph_scope_in_bag": self.has_silph_scope_in_bag,
+                "has_lift_key_in_bag": self.has_lift_key_in_bag,
+                "has_pokedoll_in_bag": self.has_pokedoll_in_bag,
+                "has_bicycle_in_bag": self.has_bicycle_in_bag,
+                },
+            },
+            "events": {
                 "met_bill": int(self.read_bit(0xD7F1, 0)),
                 "used_cell_separator_on_bill": int(self.read_bit(0xD7F2, 3)),
                 "ss_ticket": int(self.read_bit(0xD7F2, 4)),
@@ -1161,29 +1249,30 @@ class RedGymEnv(Env):
                 "taught_cut": int(self.check_if_party_has_hm(0xF)),
                 "cut_coords": sum(self.cut_coords.values()),
                 "cut_tiles": len(self.cut_tiles),
-                "start_menu": self.seen_start_menu,
-                "pokemon_menu": self.seen_pokemon_menu,
-                "stats_menu": self.seen_stats_menu,
-                "bag_menu": self.seen_bag_menu,
-                "action_bag_menu": self.seen_action_bag_menu,
-                "blackout_check": self.blackout_check,
-                "item_count": self.read_m(0xD31D),
-                "reset_count": self.reset_count,
-                "blackout_count": self.blackout_count,
-                "pokecenter": np.sum(self.pokecenters),
+                "rescued_mr_fuji_1": int(self.read_bit(0xD7E0, 7)),
+                "rescued_mr_fuji_2": int(self.read_bit(0xD769, 7)),
+                "beat_silph_co_giovanni": int(self.read_bit(0xD838, 7)),
+                "got_poke_flute": int(self.read_bit(0xD76C, 0)),
+                "silph_co_skipped": self.silph_co_skipped,
+                "rival3": int(self.read_m(0xD665) == 4),
+                **{event: self.events.get_event(event) for event in REQUIRED_EVENTS},
+            },
+            "gym": {
+                "beat_gym_4_leader_erika": gym_4_events["four"],
+                "beat_gym_5_leader_koga": gym_5_events["five"],
+                "beat_gym_6_leader_sabrina": gym_6_events["six"],
+                "beat_gym_7_leader_blaine": gym_7_events["seven"],
+                "beat_gym_8_leader_giovanni": gym_8_events["eight"],
+            },
+            "rocket_hideout": {
                 "found_rocket_hideout": ram_map_leanke.monitor_hideout_events(self.pyboy)[
                     "found_rocket_hideout"
                 ],
                 "beat_rocket_hideout_giovanni": ram_map_leanke.monitor_hideout_events(self.pyboy)[
                     "beat_rocket_hideout_giovanni"
                 ],
-                "beat_gym_4_leader_erika": ram_map_leanke.monitor_gym4_events(self.pyboy)["four"],
-                "beat_gym_5_leader_koga": ram_map_leanke.monitor_gym5_events(self.pyboy)["five"],
-                "beat_gym_6_leader_sabrina": ram_map_leanke.monitor_gym6_events(self.pyboy)["six"],
-                "beat_gym_7_leader_blaine": ram_map_leanke.monitor_gym7_events(self.pyboy)["seven"],
-                "beat_gym_8_leader_giovanni": ram_map_leanke.monitor_gym8_events(self.pyboy)[
-                    "eight"
-                ],
+            },
+            "dojo": {
                 "defeated_fighting_dojo": ram_map_leanke.monitor_dojo_events(self.pyboy)[
                     "defeated_fighting_dojo"
                 ],
@@ -1192,23 +1281,116 @@ class RedGymEnv(Env):
                 ],
                 "got_hitmonlee": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonlee"],
                 "got_hitmonchan": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonchan"],
-                "rescued_mr_fuji": int(self.read_bit(0xD7E0, 7)),
-                "beat_silph_co_giovanni": int(self.read_bit(0xD838, 7)),
-                "got_poke_flute": int(self.read_bit(0xD76C, 0)),
-                "has_lemonade_in_bag": self.has_lemonade_in_bag,
-                "has_fresh_water_in_bag": self.has_fresh_water_in_bag,
-                "has_soda_pop_in_bag": self.has_soda_pop_in_bag,
-                "has_silph_scope_in_bag": self.has_silph_scope_in_bag,
-                "has_lift_key_in_bag": self.has_lift_key_in_bag,
-                "has_pokedoll_in_bag": self.has_pokedoll_in_bag,
-                "has_bicycle_in_bag": self.has_bicycle_in_bag,
-                **safari_events
             },
-            "reward": self.get_game_state_reward(),
-            "reward/reward_sum": sum(self.get_game_state_reward().values()),
-            "pokemon_exploration_map": self.explore_map,
-            "cut_exploration_map": self.cut_explore_map,
+            "safari": {
+                "safari_events": safari_events,
+            },
+            "rewards": {
+                "reward": self.get_game_state_reward(),
+                "reward_sum": sum(self.get_game_state_reward().values()),
+                "event": self.progress_reward["event"],
+                "healr": self.total_heal_health,
+            },
         }
+
+
+    # def agent_stats(self, action):
+    #     self.levels = [
+    #         self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
+    #     ]
+    #     safari_events = ram_map_leanke.monitor_safari_events(self.pyboy)
+        
+    #     return {
+    #         "stats": {
+    #             "step": self.get_global_steps(),  # self.step_count + self.reset_count * self.max_steps,
+    #             "max_map_progress": self.max_map_progress,
+    #             "last_action": action,
+    #             "party_count": self.read_m("wPartyCount"),
+    #             "levels": self.levels,
+    #             "levels_sum": sum(self.levels),
+    #             "ptypes": self.read_party(),
+    #             "hp": self.read_hp_fraction(),
+    #             "coord": sum(self.seen_coords.values()),  # np.sum(self.seen_global_coords),
+    #             "map_id": np.sum(self.seen_map_ids),
+    #             "npc": sum(self.seen_npcs.values()),
+    #             "hidden_obj": sum(self.seen_hidden_objs.values()),
+    #             "deaths": self.died_count,
+    #             "badge": self.get_badges(),
+    #             "badge_1": int(self.get_badges() >= 1),
+    #             "badge_2": int(self.get_badges() >= 2),
+    #             "badge_3": int(self.get_badges() >= 3),
+    #             "badge_4": int(self.get_badges() >= 4),
+    #             "badge_5": int(self.get_badges() >= 5),
+    #             "badge_6": int(self.get_badges() >= 6),
+    #             "badge_7": int(self.get_badges() >= 7),
+    #             "badge_8": int(self.get_badges() >= 8),
+    #             "event": self.progress_reward["event"],
+    #             "healr": self.total_heal_health,
+    #             "action_hist": self.action_hist,
+    #             "caught_pokemon": int(sum(self.caught_pokemon)),
+    #             "seen_pokemon": int(sum(self.seen_pokemon)),
+    #             "moves_obtained": int(sum(self.moves_obtained)),
+    #             "opponent_level": self.max_opponent_level,
+    #             "met_bill": int(self.read_bit(0xD7F1, 0)),
+    #             "used_cell_separator_on_bill": int(self.read_bit(0xD7F2, 3)),
+    #             "ss_ticket": int(self.read_bit(0xD7F2, 4)),
+    #             "got_bill_but_not_badge_2": self.got_bill_but_not_badge_2(),
+    #             "met_bill_2": int(self.read_bit(0xD7F2, 5)),
+    #             "bill_said_use_cell_separator": int(self.read_bit(0xD7F2, 6)),
+    #             "left_bills_house_after_helping": int(self.read_bit(0xD7F2, 7)),
+    #             "got_hm01": int(self.read_bit(0xD803, 0)),
+    #             "rubbed_captains_back": int(self.read_bit(0xD803, 1)),
+    #             "taught_cut": int(self.check_if_party_has_hm(0xF)),
+    #             "cut_coords": sum(self.cut_coords.values()),
+    #             "cut_tiles": len(self.cut_tiles),
+    #             "start_menu": self.seen_start_menu,
+    #             "pokemon_menu": self.seen_pokemon_menu,
+    #             "stats_menu": self.seen_stats_menu,
+    #             "bag_menu": self.seen_bag_menu,
+    #             "action_bag_menu": self.seen_action_bag_menu,
+    #             "blackout_check": self.blackout_check,
+    #             "item_count": self.read_m(0xD31D),
+    #             "reset_count": self.reset_count,
+    #             "blackout_count": self.blackout_count,
+    #             "pokecenter": np.sum(self.pokecenters),
+    #             "found_rocket_hideout": ram_map_leanke.monitor_hideout_events(self.pyboy)[
+    #                 "found_rocket_hideout"
+    #             ],
+    #             "beat_rocket_hideout_giovanni": ram_map_leanke.monitor_hideout_events(self.pyboy)[
+    #                 "beat_rocket_hideout_giovanni"
+    #             ],
+    #             "beat_gym_4_leader_erika": ram_map_leanke.monitor_gym4_events(self.pyboy)["four"],
+    #             "beat_gym_5_leader_koga": ram_map_leanke.monitor_gym5_events(self.pyboy)["five"],
+    #             "beat_gym_6_leader_sabrina": ram_map_leanke.monitor_gym6_events(self.pyboy)["six"],
+    #             "beat_gym_7_leader_blaine": ram_map_leanke.monitor_gym7_events(self.pyboy)["seven"],
+    #             "beat_gym_8_leader_giovanni": ram_map_leanke.monitor_gym8_events(self.pyboy)[
+    #                 "eight"
+    #             ],
+    #             "defeated_fighting_dojo": ram_map_leanke.monitor_dojo_events(self.pyboy)[
+    #                 "defeated_fighting_dojo"
+    #             ],
+    #             "beat_karate_master": ram_map_leanke.monitor_dojo_events(self.pyboy)[
+    #                 "beat_karate_master"
+    #             ],
+    #             "got_hitmonlee": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonlee"],
+    #             "got_hitmonchan": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonchan"],
+    #             "rescued_mr_fuji": int(self.read_bit(0xD7E0, 7)),
+    #             "beat_silph_co_giovanni": int(self.read_bit(0xD838, 7)),
+    #             "got_poke_flute": int(self.read_bit(0xD76C, 0)),
+    #             "has_lemonade_in_bag": self.has_lemonade_in_bag,
+    #             "has_fresh_water_in_bag": self.has_fresh_water_in_bag,
+    #             "has_soda_pop_in_bag": self.has_soda_pop_in_bag,
+    #             "has_silph_scope_in_bag": self.has_silph_scope_in_bag,
+    #             "has_lift_key_in_bag": self.has_lift_key_in_bag,
+    #             "has_pokedoll_in_bag": self.has_pokedoll_in_bag,
+    #             "has_bicycle_in_bag": self.has_bicycle_in_bag,
+    #             **safari_events
+    #         },
+    #         "reward": self.get_game_state_reward(),
+    #         "reward/reward_sum": sum(self.get_game_state_reward().values()),
+    #         "pokemon_exploration_map": self.explore_map,
+    #         "cut_exploration_map": self.cut_explore_map,
+    #     }
 
     def start_video(self):
         if self.full_frame_writer is not None:
@@ -1411,44 +1593,88 @@ class RedGymEnv(Env):
 
     def save_furthest_state(self, map_idx, map_progress):
         if self.read_m(0xD057) == 0:  # not in battle
-            saved_state_dir = self.furthest_states_dir
+            if self.skip_silph_co_bool and not self.state_already_saved:
+                saved_state_dir = self.general_saved_state_dir
+                self.state_already_saved = True  # Save 1x/episode. Resets in reset()
+            elif self.skip_safari_zone_bool and not self.state_already_saved:
+                saved_state_dir = self.general_saved_state_dir
+                self.state_already_saved = True
 
-            # Save the new furthest state
-            saved_state_file = os.path.join(
-                saved_state_dir,
-                f"furthest_state_env_id_{self.env_id}_map_n_{map_idx}_map_progress_{map_progress}.state",
-            )
-            with open(saved_state_file, "wb") as file:
-                self.pyboy.save_state(file)
-            logging.info(
-                f"State saved for furthest progress: env_id: {self.env_id}, map_idx: {map_idx}, map_progress: {map_progress}"
-            )
+            # General state save
+            elif not self.state_already_saved:
+                saved_state_dir = self.furthest_states_dir
+
+            else:
+                return  # Do nothing if neither condition is met...
+
+            # Ensure the directory exists
+            os.makedirs(saved_state_dir, exist_ok=True)
+
+            if self.skip_silph_co_bool:
+                saved_state_file = os.path.join(
+                    saved_state_dir,
+                    f"skip_silph_co_env_id_{self.env_id}_map_n_{map_idx}.state",
+                )
+                with open(saved_state_file, "wb") as file:
+                    self.pyboy.save_state(file)
+                logging.info(
+                    f"State saved for skip_silph_co default reload state: env_id: {self.env_id}, map_idx: {map_idx}"
+                )
+            elif self.skip_safari_zone_bool:
+                saved_state_file = os.path.join(
+                    saved_state_dir,
+                    f"skip_safari_zone_env_id_{self.env_id}_map_n_{map_idx}.state",
+                )
+                with open(saved_state_file, "wb") as file:
+                    self.pyboy.save_state(file)
+                logging.info(
+                    f"State saved for skip_safari_zone default reload state: env_id: {self.env_id}, map_idx: {map_idx}"
+                )
+            else:
+                saved_state_file = os.path.join(
+                    saved_state_dir,
+                    f"furthest_state_env_id_{self.env_id}_map_n_{map_idx}.state",
+                )
+                with open(saved_state_file, "wb") as file:
+                    self.pyboy.save_state(file)
+                logging.info(
+                    f"State saved for furthest progress: env_id: {self.env_id}, map_idx: {map_idx}, map_progress: {map_progress}"
+                )
+
+    @property
+    def get_silph_co_penalty(self):
+        return self.silph_co_penalty
 
     def load_furthest_state(self):
-        map_n = self.read_m(0xD35E)
-        current_map_progress = self.get_map_progress(map_n)
-        furthest_map_progress = self.get_saved_furthest_map_progress()
-
-        if furthest_map_progress > current_map_progress:
+        if self.skip_silph_co_bool:
+            saved_state_dir = self.general_saved_state_dir
+            saved_state_pattern = f"skip_silph_co_env_id_{self.env_id}_map_n_"
+        elif self.skip_safari_zone_bool:
+            saved_state_dir = self.general_saved_state_dir
+            saved_state_pattern = f"skip_safari_zone_env_id_{self.env_id}_map_n_"
+        else:
             saved_state_dir = self.furthest_states_dir
-            saved_state_pattern = "furthest_state_env_id_"
+            saved_state_pattern = f"furthest_state_env_id_{self.env_id}_map_n_"
 
-            for filename in os.listdir(saved_state_dir):
-                if filename.startswith(saved_state_pattern) and filename.endswith(
-                    f"_map_progress_{furthest_map_progress}.state"
-                ):
-                    furthest_state_file = os.path.join(saved_state_dir, filename)
-                    if os.path.exists(furthest_state_file):
-                        print(
-                            f"env_id_{self.env_id}: map_n={map_n}. Loading furthest state: {filename}"
-                        )
-                        with open(furthest_state_file, "rb") as file:
-                            self.pyboy.load_state(file)
-                        break
-                    else:
-                        print(
-                            f"env_id_{self.env_id}: map_n={map_n}. Furthest state file not found: {furthest_state_file}"
-                        )
+        # Find the state file that matches the pattern
+        state_file = None
+        for filename in os.listdir(saved_state_dir):
+            if filename.startswith(saved_state_pattern):
+                state_file = os.path.join(saved_state_dir, filename)
+                break
+        else:
+            # Pick a random saved state if no matching file is found
+            state_file = os.path.join(saved_state_dir, random.choice(os.listdir(saved_state_dir)))
+
+        if state_file and os.path.exists(state_file):
+            with open(state_file, "rb") as file:
+                self.pyboy.load_state(file)
+            self.silph_co_penalty += 1
+            logging.info(
+                f"env_id: {self.env_id}: Loaded furthest state: {state_file}, silph_co_penalty: {self.get_silph_co_penalty}"
+            )
+        else:
+            logging.warning(f"env_id: {self.env_id}: Furthest state file not found: {state_file}")
 
     def get_items_in_bag(self) -> Iterable[int]:
         num_bag_items = self.read_m("wNumBagItems")
