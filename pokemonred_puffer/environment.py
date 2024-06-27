@@ -238,31 +238,6 @@ class RedGymEnv(Env):
             for event in REQUIRED_EVENTS
         }
 
-        # obs_space = {
-        #     "screen": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
-        #     "visited_mask": spaces.Box(
-        #         low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
-        #     ),
-        #     "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
-        #     "battle_type": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
-        #     "cut_event": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
-        #     "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
-        #     "badges": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
-        # }
-
-        # if self.use_fixed_x:
-        #     self.screen_memory = defaultdict(
-        #         lambda: np.zeros((255, 255, 1), dtype=np.uint8)
-        #     )
-        #     obs_space["fixed_x"] = spaces.Box(
-        #                 low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
-        #             )
-
-        # if not self.use_fixed_x:
-        #     obs_space["global_map"] = spaces.Box(
-        #         low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
-        #     )
-
         self.observation_space = spaces.Dict(obs_space)
 
         self.pyboy = PyBoy(
@@ -296,27 +271,6 @@ class RedGymEnv(Env):
             RedGymEnv.env_id.buf[1] = (env_id >> 16) & 0xFF
             RedGymEnv.env_id.buf[2] = (env_id >> 8) & 0xFF
             RedGymEnv.env_id.buf[3] = (env_id) & 0xFF
-
-        # logging.info(
-        #     f'env_{self.env_id}: obs_space["screen"]: {obs_space["screen"].shape}, self.env_id: {self.env_id}'
-        # )
-        # logging.info(
-        #     f'env_{self.env_id}: obs_space["visited_mask"]: {obs_space["visited_mask"].shape}'
-        # )
-        # logging.info(
-        #     f'env_{self.env_id}: obs_space["fixed_x"]: {obs_space["fixed_x"].shape}'
-        #     if "fixed_x" in obs_space
-        #     else "Fixed_x not used."
-        # )
-        # logging.info(f'env_{self.env_id}: obs_space["direction"]: {obs_space["direction"].shape}')
-        # logging.info(
-        #     f'env_{self.env_id}: obs_space["battle_type"]: {obs_space["battle_type"].shape}'
-        # )
-        # logging.info(f'env_{self.env_id}: obs_space["cut_event"]: {obs_space["cut_event"].shape}')
-        # logging.info(
-        #     f'env_{self.env_id}: obs_space["cut_in_party"]: {obs_space["cut_in_party"].shape}'
-        # )
-        # logging.info(f'env_{self.env_id}: obs_space["badges"]: {obs_space["badges"].shape}')
 
     def register_hooks(self):
         self.pyboy.hook_register(None, "DisplayStartMenu", self.start_menu_hook, None)
@@ -752,23 +706,6 @@ class RedGymEnv(Env):
             }
             | {event: np.array(self.events.get_event(event)) for event in REQUIRED_EVENTS}
         )
-
-    # def _get_obs(self):
-    #     # player_x, player_y, map_n = self.get_game_coords()
-    #     return {
-    #         **self.render(),
-    #         "direction": np.array(
-    #             self.read_m("wSpritePlayerStateData1FacingDirection") // 4, dtype=np.uint8
-    #         ),
-    #         # "reset_map_id": np.array(self.read_m("wLastBlackoutMap"), dtype=np.uint8),
-    #         "battle_type": np.array(self.read_m("wIsInBattle") + 1, dtype=np.uint8),
-    #         "cut_event": np.array(self.read_bit(0xD803, 0), dtype=np.uint8),
-    #         "cut_in_party": np.array(self.check_if_party_has_hm(0xF), dtype=np.uint8),
-    #         # "x": np.array(player_x, dtype=np.uint8),
-    #         # "y": np.array(player_y, dtype=np.uint8),
-    #         # "map_id": np.array(map_n, dtype=np.uint8),
-    #         "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
-    #     }
 
     def set_perfect_iv_dvs(self):
         party_size = self.read_m("wPartyCount")
@@ -1292,105 +1229,6 @@ class RedGymEnv(Env):
                 "healr": self.total_heal_health,
             },
         }
-
-
-    # def agent_stats(self, action):
-    #     self.levels = [
-    #         self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
-    #     ]
-    #     safari_events = ram_map_leanke.monitor_safari_events(self.pyboy)
-        
-    #     return {
-    #         "stats": {
-    #             "step": self.get_global_steps(),  # self.step_count + self.reset_count * self.max_steps,
-    #             "max_map_progress": self.max_map_progress,
-    #             "last_action": action,
-    #             "party_count": self.read_m("wPartyCount"),
-    #             "levels": self.levels,
-    #             "levels_sum": sum(self.levels),
-    #             "ptypes": self.read_party(),
-    #             "hp": self.read_hp_fraction(),
-    #             "coord": sum(self.seen_coords.values()),  # np.sum(self.seen_global_coords),
-    #             "map_id": np.sum(self.seen_map_ids),
-    #             "npc": sum(self.seen_npcs.values()),
-    #             "hidden_obj": sum(self.seen_hidden_objs.values()),
-    #             "deaths": self.died_count,
-    #             "badge": self.get_badges(),
-    #             "badge_1": int(self.get_badges() >= 1),
-    #             "badge_2": int(self.get_badges() >= 2),
-    #             "badge_3": int(self.get_badges() >= 3),
-    #             "badge_4": int(self.get_badges() >= 4),
-    #             "badge_5": int(self.get_badges() >= 5),
-    #             "badge_6": int(self.get_badges() >= 6),
-    #             "badge_7": int(self.get_badges() >= 7),
-    #             "badge_8": int(self.get_badges() >= 8),
-    #             "event": self.progress_reward["event"],
-    #             "healr": self.total_heal_health,
-    #             "action_hist": self.action_hist,
-    #             "caught_pokemon": int(sum(self.caught_pokemon)),
-    #             "seen_pokemon": int(sum(self.seen_pokemon)),
-    #             "moves_obtained": int(sum(self.moves_obtained)),
-    #             "opponent_level": self.max_opponent_level,
-    #             "met_bill": int(self.read_bit(0xD7F1, 0)),
-    #             "used_cell_separator_on_bill": int(self.read_bit(0xD7F2, 3)),
-    #             "ss_ticket": int(self.read_bit(0xD7F2, 4)),
-    #             "got_bill_but_not_badge_2": self.got_bill_but_not_badge_2(),
-    #             "met_bill_2": int(self.read_bit(0xD7F2, 5)),
-    #             "bill_said_use_cell_separator": int(self.read_bit(0xD7F2, 6)),
-    #             "left_bills_house_after_helping": int(self.read_bit(0xD7F2, 7)),
-    #             "got_hm01": int(self.read_bit(0xD803, 0)),
-    #             "rubbed_captains_back": int(self.read_bit(0xD803, 1)),
-    #             "taught_cut": int(self.check_if_party_has_hm(0xF)),
-    #             "cut_coords": sum(self.cut_coords.values()),
-    #             "cut_tiles": len(self.cut_tiles),
-    #             "start_menu": self.seen_start_menu,
-    #             "pokemon_menu": self.seen_pokemon_menu,
-    #             "stats_menu": self.seen_stats_menu,
-    #             "bag_menu": self.seen_bag_menu,
-    #             "action_bag_menu": self.seen_action_bag_menu,
-    #             "blackout_check": self.blackout_check,
-    #             "item_count": self.read_m(0xD31D),
-    #             "reset_count": self.reset_count,
-    #             "blackout_count": self.blackout_count,
-    #             "pokecenter": np.sum(self.pokecenters),
-    #             "found_rocket_hideout": ram_map_leanke.monitor_hideout_events(self.pyboy)[
-    #                 "found_rocket_hideout"
-    #             ],
-    #             "beat_rocket_hideout_giovanni": ram_map_leanke.monitor_hideout_events(self.pyboy)[
-    #                 "beat_rocket_hideout_giovanni"
-    #             ],
-    #             "beat_gym_4_leader_erika": ram_map_leanke.monitor_gym4_events(self.pyboy)["four"],
-    #             "beat_gym_5_leader_koga": ram_map_leanke.monitor_gym5_events(self.pyboy)["five"],
-    #             "beat_gym_6_leader_sabrina": ram_map_leanke.monitor_gym6_events(self.pyboy)["six"],
-    #             "beat_gym_7_leader_blaine": ram_map_leanke.monitor_gym7_events(self.pyboy)["seven"],
-    #             "beat_gym_8_leader_giovanni": ram_map_leanke.monitor_gym8_events(self.pyboy)[
-    #                 "eight"
-    #             ],
-    #             "defeated_fighting_dojo": ram_map_leanke.monitor_dojo_events(self.pyboy)[
-    #                 "defeated_fighting_dojo"
-    #             ],
-    #             "beat_karate_master": ram_map_leanke.monitor_dojo_events(self.pyboy)[
-    #                 "beat_karate_master"
-    #             ],
-    #             "got_hitmonlee": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonlee"],
-    #             "got_hitmonchan": ram_map_leanke.monitor_dojo_events(self.pyboy)["got_hitmonchan"],
-    #             "rescued_mr_fuji": int(self.read_bit(0xD7E0, 7)),
-    #             "beat_silph_co_giovanni": int(self.read_bit(0xD838, 7)),
-    #             "got_poke_flute": int(self.read_bit(0xD76C, 0)),
-    #             "has_lemonade_in_bag": self.has_lemonade_in_bag,
-    #             "has_fresh_water_in_bag": self.has_fresh_water_in_bag,
-    #             "has_soda_pop_in_bag": self.has_soda_pop_in_bag,
-    #             "has_silph_scope_in_bag": self.has_silph_scope_in_bag,
-    #             "has_lift_key_in_bag": self.has_lift_key_in_bag,
-    #             "has_pokedoll_in_bag": self.has_pokedoll_in_bag,
-    #             "has_bicycle_in_bag": self.has_bicycle_in_bag,
-    #             **safari_events
-    #         },
-    #         "reward": self.get_game_state_reward(),
-    #         "reward/reward_sum": sum(self.get_game_state_reward().values()),
-    #         "pokemon_exploration_map": self.explore_map,
-    #         "cut_exploration_map": self.cut_explore_map,
-    #     }
 
     def start_video(self):
         if self.full_frame_writer is not None:
