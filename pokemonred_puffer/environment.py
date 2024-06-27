@@ -29,6 +29,32 @@ import pufferlib
 from pokemonred_puffer.global_map import GLOBAL_MAP_SHAPE, local_to_global, get_map_name, ESSENTIAL_MAP_LOCATIONS
 import logging
 
+import pufferlib
+from pokemonred_puffer.data_files.events import (
+    EVENT_FLAGS_START,
+    EVENTS_FLAGS_LENGTH,
+    MUSEUM_TICKET,
+    REQUIRED_EVENTS,
+    EventFlags,
+)
+from pokemonred_puffer.data_files.field_moves import FieldMoves
+from pokemonred_puffer.data_files.items import (
+    HM_ITEM_IDS,
+    KEY_ITEM_IDS,
+    MAX_ITEM_CAPACITY,
+    REQUIRED_ITEMS,
+    USEFUL_ITEMS,
+    Items as ItemsThatGuy,
+)
+from pokemonred_puffer.data_files.missable_objects import MissableFlags
+from pokemonred_puffer.data_files.strength_puzzles import STRENGTH_SOLUTIONS
+from pokemonred_puffer.data_files.tilesets import Tilesets
+from pokemonred_puffer.data_files.tm_hm import (
+    CUT_SPECIES_IDS,
+    STRENGTH_SPECIES_IDS,
+    SURF_SPECIES_IDS,
+    TmHmMoves,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -159,11 +185,36 @@ class RedGymEnv(Env):
                 low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
             ),
             "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
-            "battle_type": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
-            "cut_event": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+            # "battle_type": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
+            # "cut_event": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8), ## got hm01
             "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+            "surf_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+            "strength_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+            # "fly_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+            "map_id": spaces.Box(low=0, high=0xF7, shape=(1,), dtype=np.uint8),
             "badges": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
+            "bag_items": spaces.Box(
+                low=0, high=max(ItemsThatGuy._value2member_map_.keys()), shape=(20,), dtype=np.uint8
+            ),
+            "bag_quantity": spaces.Box(low=0, high=100, shape=(20,), dtype=np.uint8),
+            # "rival_3": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+            # "game_corner_rocket": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+        } | {
+            event: spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8)
+            for event in REQUIRED_EVENTS
         }
+
+        # obs_space = {
+        #     "screen": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
+        #     "visited_mask": spaces.Box(
+        #         low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8
+        #     ),
+        #     "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
+        #     "battle_type": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
+        #     "cut_event": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+        #     "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+        #     "badges": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
+        # }
 
         # if self.use_fixed_x:
         #     self.screen_memory = defaultdict(
@@ -424,6 +475,9 @@ class RedGymEnv(Env):
         self.reset_mem()
         self.reset_bag_item_vars()
         self.cut_explore_map *= 0
+        
+        self.events = EventFlags(self.pyboy)
+        self.missables = MissableFlags(self.pyboy)
         self.update_pokedex()
         self.update_tm_hm_moves_obtained()
         self.taught_cut = self.check_if_party_has_hm(0xF)
@@ -628,22 +682,59 @@ class RedGymEnv(Env):
                 "visited_mask": visited_mask,
             }
 
+
     def _get_obs(self):
         # player_x, player_y, map_n = self.get_game_coords()
-        return {
-            **self.render(),
-            "direction": np.array(
-                self.read_m("wSpritePlayerStateData1FacingDirection") // 4, dtype=np.uint8
-            ),
-            # "reset_map_id": np.array(self.read_m("wLastBlackoutMap"), dtype=np.uint8),
-            "battle_type": np.array(self.read_m("wIsInBattle") + 1, dtype=np.uint8),
-            "cut_event": np.array(self.read_bit(0xD803, 0), dtype=np.uint8),
-            "cut_in_party": np.array(self.check_if_party_has_hm(0xF), dtype=np.uint8),
-            # "x": np.array(player_x, dtype=np.uint8),
-            # "y": np.array(player_y, dtype=np.uint8),
-            # "map_id": np.array(map_n, dtype=np.uint8),
-            "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
-        }
+        _, wBagItems = self.pyboy.symbol_lookup("wBagItems")
+        bag = np.array(self.pyboy.memory[wBagItems : wBagItems + 40], dtype=np.uint8)
+        numBagItems = self.read_m("wNumBagItems")
+        # item ids start at 1 so using 0 as the nothing value is okay
+        bag[2 * numBagItems :] = 0
+
+        return (
+            self.render()
+            | {
+                "direction": np.array(
+                    self.read_m("wSpritePlayerStateData1FacingDirection") // 4, dtype=np.uint8
+                ),
+                # "reset_map_id": np.array(self.read_m("wLastBlackoutMap"), dtype=np.uint8),
+                # "battle_type": np.array(self.read_m("wIsInBattle") + 1, dtype=np.uint8),
+                # "cut_event": np.array(self.read_bit(0xD803, 0), dtype=np.uint8), ## got hm01 event
+                "cut_in_party": np.array(self.check_if_party_has_hm(0xF), dtype=np.uint8),
+                "surf_in_party": np.array(self.check_if_party_has_hm(0x39), dtype=np.uint8),
+                "strength_in_party": np.array(self.check_if_party_has_hm(0x46), dtype=np.uint8),
+                # "fly_in_party": np.array(self.check_if_party_has_hm(0x13), dtype=np.uint8),
+                # "x": np.array(player_x, dtype=np.uint8),
+                # "y": np.array(player_y, dtype=np.uint8),
+                # "map_id": np.array(map_n, dtype=np.uint8),
+                "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
+                "map_id": np.array(self.read_m(0xD35E), dtype=np.uint8),
+                "bag_items": bag[::2].copy(),
+                "bag_quantity": bag[1::2].copy(),
+                # "rival_3": np.array(self.read_m("wSSAnne2FCurScript") == 4, dtype=np.uint8),
+                # "game_corner_rocket": np.array(
+                #     self.missables.get_missable("HS_GAME_CORNER_ROCKET"), dtype=np.uint8
+                # ),
+            }
+            | {event: np.array(self.events.get_event(event)) for event in REQUIRED_EVENTS}
+        )
+
+    # def _get_obs(self):
+    #     # player_x, player_y, map_n = self.get_game_coords()
+    #     return {
+    #         **self.render(),
+    #         "direction": np.array(
+    #             self.read_m("wSpritePlayerStateData1FacingDirection") // 4, dtype=np.uint8
+    #         ),
+    #         # "reset_map_id": np.array(self.read_m("wLastBlackoutMap"), dtype=np.uint8),
+    #         "battle_type": np.array(self.read_m("wIsInBattle") + 1, dtype=np.uint8),
+    #         "cut_event": np.array(self.read_bit(0xD803, 0), dtype=np.uint8),
+    #         "cut_in_party": np.array(self.check_if_party_has_hm(0xF), dtype=np.uint8),
+    #         # "x": np.array(player_x, dtype=np.uint8),
+    #         # "y": np.array(player_y, dtype=np.uint8),
+    #         # "map_id": np.array(map_n, dtype=np.uint8),
+    #         "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
+    #     }
 
     def set_perfect_iv_dvs(self):
         party_size = self.read_m("wPartyCount")
