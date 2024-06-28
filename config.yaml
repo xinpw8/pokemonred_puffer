@@ -39,7 +39,7 @@ env:
   print_rewards: True
   video_dir: video
   state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
-  init_state: game_corner_by_poster # skip_silph_co_env_id_28_map_n_7
+  init_state: outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
   max_steps: 20480 # 40960 # 20480 # 20480 # 2048
   save_video: False
@@ -236,8 +236,8 @@ rewards:
       has_fresh_water_in_bag: 20.0
       has_soda_pop_in_bag: 20.0
       has_silph_scope_in_bag: 20.0
-      has_lift_key_in_bag: 20.0
-      has_pokedoll_in_bag: 20.0
+      has_lift_key_in_bag: 0
+      has_pokedoll_in_bag: 0
       has_bicycle_in_bag: 20.0
       skip_silph_co_entered_silph_co_penalty: -0.10 # penalty for entering silph co
       seen_action_bag_menu: 0.10

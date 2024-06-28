@@ -196,6 +196,11 @@ class RedGymEnv(Env):
         
         self.global_step_count = 0
         self.silph_co_skipped = 0
+        
+        self.skip_safari_zone_triggered = 0
+        self.skip_rocket_hideout_triggered = 0
+        self.skip_silph_co_triggered = 0
+        
         self.poke_flute_bag_flag = 0
         self.silph_scope_bag_flag = 0
         self.strength_bag_flag = 0
@@ -453,6 +458,15 @@ class RedGymEnv(Env):
                 ram_map.update_party_hp_to_max(self.pyboy)
                 ram_map.restore_party_move_pp(self.pyboy)
 
+        if self.skip_safari_zone_triggered:
+            self.skip_safari_zone()
+            
+        if self.skip_rocket_hideout_triggered:
+            self.skip_rocket_hideout()
+        
+        if self.skip_silph_co_triggered:
+            self.skip_silph_co()
+        
         self.state_already_saved = False
         self.explore_map *= 0
         self.recent_screens.clear()
@@ -610,23 +624,33 @@ class RedGymEnv(Env):
         visited_mask = np.zeros_like(game_pixels_render)
         scale = 2 if self.reduce_res else 1
         if self.read_m(0xD057) == 0:
-            for y in range(-72 // 16, 72 // 16):
-                for x in range(-80 // 16, 80 // 16):
-                    visited_mask[
-                        (16 * y + 76) // scale : (16 * y + 16 + 76) // scale,
-                        (16 * x + 80) // scale : (16 * x + 16 + 80) // scale,
-                        :,
-                    ] = int(
-                        self.seen_coords.get(
-                            (
-                                player_x + x + 1,
-                                player_y + y + 1,
-                                map_n,
-                            ),
-                            0,
-                        )
-                        * 255
-                    )
+            # for y in range(-72 // 16, 72 // 16):
+            #     for x in range(-80 // 16, 80 // 16):
+            #         visited_mask[
+            #             (16 * y + 76) // scale : (16 * y + 16 + 76) // scale,
+            #             (16 * x + 80) // scale : (16 * x + 16 + 80) // scale,
+            #             :,
+            #         ] = int(
+            #             self.seen_coords.get(
+            #                 (
+            #                     player_x + x + 1,
+            #                     player_y + y + 1,
+            #                     map_n,
+            #                 ),
+            #                 0,
+            #             )
+            #             * 255
+            #         )
+            gr, gc = local_to_global(player_y, player_x, map_n)
+            visited_mask = (
+                255
+                * np.repeat(
+                    np.repeat(self.explore_map[gr - 4 : gr + 6, gc - 4 : gc + 6], 16 // scale, 0),
+                    16 // scale,
+                    -1,
+                )
+            ).astype(np.uint8)[6 // scale : -10 // scale, :]
+            visited_mask = np.expand_dims(visited_mask, -1)
 
         if self.use_fixed_x:
             fixed_window = self.fixed_x(
@@ -826,7 +850,7 @@ class RedGymEnv(Env):
 
     def step(self, action):
         # Deal with Cycling Route gate problems
-        _, _, map_n = self.get_game_coords()
+        c, r, map_n = self.get_game_coords()
         if self.last_map != map_n:
             self.new_map = True
         else:
@@ -881,7 +905,7 @@ class RedGymEnv(Env):
             and ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"]
         ) or self.silph_scope_bag_flag:
             self.put_silph_scope_in_bag()
-        if self.skip_safari_zone_bool:
+        if self.skip_safari_zone_bool and c in [15, 18, 19] and r in [4, 5, 7] and map_n == 7:
             self.skip_safari_zone()
         if self.put_bicycle_in_bag_bool:
             self.put_bicycle_in_bag()
@@ -1784,6 +1808,7 @@ class RedGymEnv(Env):
 
     # Marks hideout as completed and prevents an agent from entering rocket hideout
     def skip_rocket_hideout(self):
+        self.skip_rocket_hideout_triggered = 1
         r, c, map_n = self.get_game_coords()
         
         # Flip bit for "beat_rocket_hideout_giovanni"
@@ -1804,31 +1829,34 @@ class RedGymEnv(Env):
         except Exception as e:
                 logging.info(f'env_id: {self.env_id} had exception in skip_rocket_hideout in run_action_on_emulator. error={e}')
                 pass
-    
+            
     def skip_silph_co(self):
+        self.skip_silph_co_triggered = 1
         c, r, map_n = self.get_game_coords()        
         current_value = self.pyboy.memory[0xD81B]
         self.pyboy.memory[0xD81B] = current_value | (1 << 7) # Set bit 7 to 1 to complete Silph Co Giovanni
         self.pyboy.memory[0xD838] = current_value | (1 << 5) # Set bit 5 to 1 to complete "got_master_ball"
         try:
             if self.skip_silph_co_bool:
-                if c == 0x18 and r == 0x23 and map_n == 10:
-                    for _ in range(10):
-                        self.pyboy.send_input(WindowEvent.PRESS_ARROW_LEFT)
-                        self.pyboy.send_input(WindowEvent.RELEASE_ARROW_LEFT, delay=8)
-                        self.pyboy.tick(7 * self.action_freq, render=True)
-                if c == 0x17 and r == 0x22 and map_n == 10:
-                    self.pyboy.send_input(WindowEvent.PRESS_ARROW_LEFT)
-                    self.pyboy.send_input(WindowEvent.RELEASE_ARROW_LEFT, delay=8)
-                    self.pyboy.tick(self.action_freq, render=True)
+                if c == 18 and r == 23 and map_n == 10:
+                    for _ in range(2):
+                        self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
+                        self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
+                        self.pyboy.tick(2 * self.action_freq, render=True)
+                elif (c == 17 or c == 18) and r == 22 and map_n == 10:
+                    for _ in range(2):
+                        self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
+                        self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
+                        self.pyboy.tick(2 * self.action_freq, render=True)
             # print(f'env_{self.env_id}: r: {r}, c: {c}, map_n: {map_n}')
         except Exception as e:
                 logging.info(f'env_id: {self.env_id} had exception in skip_silph_co in run_action_on_emulator. error={e}')
                 pass
                 # the location of the rocket guy guarding silph co is (x, y) (19, 22) map_n == 10
                 # the following code will prevent the agent from walking into silph co by preventing the agent from walking into the tile
-             
+               
     def skip_safari_zone(self):
+        self.skip_safari_zone_triggered = True
         gold_teeth_address = 0xD78E
         gold_teeth_bit = 1
         current_value = self.pyboy.memory[gold_teeth_address]
@@ -1849,20 +1877,22 @@ class RedGymEnv(Env):
                         self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
                         self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
                         self.pyboy.tick(3 * self.action_freq, render=True)
-                elif c == 18 or c == 19 and r == 5 and map_n == 7:
+                elif (c == 18 or c == 19) and (r == 5 and map_n == 7):
                     for _ in range(1):
                         self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
                         self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
                         self.pyboy.tick(2 * self.action_freq, render=True)
-                elif c == 18 or c == 19 and r == 4 and map_n == 7:
+                elif (c == 18 or c == 19) and (r == 4 and map_n == 7):
                     for _ in range(1):
                         self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
                         self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
                         self.pyboy.tick(2 * self.action_freq, render=True)
 
+            # print(f'env_{self.env_id}: r: {r}, c: {c}, map_n: {map_n}')
         except Exception as e:
                 logging.info(f'env_id: {self.env_id} had exception in skip_safari_zone in run_action_on_emulator. error={e}')
                 pass
+    
             
     def put_silph_scope_in_bag(self):        
         # Put silph scope in items bag
@@ -1879,7 +1909,6 @@ class RedGymEnv(Env):
         self.pyboy.memory[0xD31E + idx * 2] = 0x49  # poke flute 0x49
         self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
         self.compact_bag()
-
 
     def put_surf_in_bag(self):
         self.surf_bag_flag = True
