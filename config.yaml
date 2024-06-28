@@ -51,7 +51,7 @@ env:
   fixed_x: False
   log_frequency: 1000
   infinite_money: True
-  auto_flash: False
+  auto_flash: True
   auto_pokeflute: True
   auto_teach_cut: True
   auto_use_cut: True
@@ -228,7 +228,7 @@ rewards:
       beat_rocket_hideout_giovanni: 20.0 # 10 (low)
       rocket_hideout_events: 5.0
       pokemon_tower_events: 10 # 5 (only 40%)
-      rescued_mr_fujii: 10.0
+      rescued_mr_fuji: 10.0
       silph_co_events: 2.50 # 5 (too much b4)
       beat_silph_co_giovanni: 10.0
       got_poke_flute: 10.0
@@ -239,6 +239,11 @@ rewards:
       has_lift_key_in_bag: 20.0
       has_pokedoll_in_bag: 20.0
       has_bicycle_in_bag: 20.0
+      skip_silph_co_entered_silph_co_penalty: -0.10 # penalty for entering silph co
+      seen_action_bag_menu: 0.10
+      required_item: 5.0
+      required_event: 5.0
+      useful_item: 1.0
 
 
 
