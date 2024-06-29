@@ -2571,19 +2571,25 @@ class EventFlagsBits(LittleEndianStructure):
         ("EVENT_9FF", c_uint8, 1),
     ]
 
-
 class EventFlags(Union):
     _fields_ = [("b", EventFlagsBits), ("asbytes", c_uint8 * 320)]
 
     def __init__(self, emu: PyBoy):
         super().__init__()
-        self.asbytes = (c_uint8 * 320)(
-            *emu.memory[EVENT_FLAGS_START : EVENT_FLAGS_START + EVENTS_FLAGS_LENGTH]
+        self.emu = emu
+        self.last_asbytes = (c_uint8 * 320)()
+        self.update()  # Initialize with current memory state
+
+    def update(self):
+        new_asbytes = (c_uint8 * 320)(
+            *self.emu.memory[EVENT_FLAGS_START : EVENT_FLAGS_START + EVENTS_FLAGS_LENGTH]
         )
+        if new_asbytes != self.last_asbytes:
+            self.asbytes = new_asbytes
+            self.last_asbytes = new_asbytes
 
     def get_event(self, event_name: str) -> bool:
         return bool(getattr(self.b, event_name))
-
 
 REQUIRED_EVENTS = {
     "EVENT_FOLLOWED_OAK_INTO_LAB",
