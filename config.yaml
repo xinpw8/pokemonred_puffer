@@ -67,6 +67,9 @@ env:
   put_poke_flute_in_bag_bool: True
   put_silph_scope_in_bag_bool: True
   put_bicycle_in_bag_bool: True
+  put_strength_in_bag_bool: True
+  put_surf_in_bag_bool: True
+  put_cut_in_bag_bool: True
   auto_remove_all_nonuseful_items: True
   furthest_states_dir: saved_states/furthest_states
   save_each_env_state_dir: saved_states/save_each_env_states
@@ -115,7 +118,7 @@ train:
   save_checkpoint: True
   checkpoint_interval: 200
   save_overlay: True
-  overlay_interval: 2 # 50 # 50 # 100
+  overlay_interval: 50 # 50 # 50 # 100
   cpu_offload: True
   pool_kernel: [0]
   load_optimizer_state: False

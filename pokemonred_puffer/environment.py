@@ -120,6 +120,9 @@ class RedGymEnv(Env):
         self.put_poke_flute_in_bag_bool = env_config.put_poke_flute_in_bag_bool
         self.put_silph_scope_in_bag_bool = env_config.put_silph_scope_in_bag_bool
         self.put_bicycle_in_bag_bool = env_config.put_bicycle_in_bag_bool
+        self.put_strength_in_bag_bool = env_config.put_strength_in_bag_bool
+        self.put_surf_in_bag_bool = env_config.put_surf_in_bag_bool
+        self.put_cut_in_bag_bool = env_config.put_cut_in_bag_bool
         self.auto_remove_all_nonuseful_items = env_config.auto_remove_all_nonuseful_items
         self.action_space = ACTION_SPACE
         self.levels = 0
@@ -208,6 +211,7 @@ class RedGymEnv(Env):
         self.surf_bag_flag = 0
         self.bicycle_bag_flag = 0
         self.silph_co_penalty = 0  # a counter that counts times env tries to go into silph co
+        self.index_count = 0
 
         # Set this in SOME subclasses
         self.metadata = {"render.modes": []}
@@ -915,6 +919,12 @@ class RedGymEnv(Env):
             self.skip_safari_zone()
         if self.put_bicycle_in_bag_bool:
             self.put_bicycle_in_bag()
+        if self.put_strength_in_bag_bool or self.strength_bag_flag:
+            self.put_item_in_bag(0xC7) # hm04 strength
+        if self.put_cut_in_bag_bool or self.cut_bag_flag:
+            self.put_item_in_bag(0xC4) # hm01 cut
+        if self.put_surf_in_bag_bool or self.surf_bag_flag:
+            self.put_item_in_bag(0xC6) # hm03 surf
             
         # set hm event flags if hm is in bag
         self.set_hm_event_flags()
@@ -1044,25 +1054,42 @@ class RedGymEnv(Env):
             self.pyboy.send_input(VALID_RELEASE_ACTIONS[action], delay=8)
         self.pyboy.tick(self.action_freq, render=True)
 
-        if self.events.get_event("EVENT_GOT_HM01"):  # 0xD803 CUT
+        if self.events.get_event("EVENT_GOT_HM01"):  # 0xD803, 0 CUT
             if self.auto_teach_cut and not self.check_if_party_has_hm(0x0F):
                 self.teach_hm(TmHmMoves.CUT.value, 30, CUT_SPECIES_IDS)
             if self.auto_use_cut:
+                # set badge 2 (Misty - CascadeBadge) if not obtained or can't use Cut
+                if self.read_bit(0xD356, 0) == 0:
+                    self.set_badge(1)
                 self.cut_if_next()
 
-        if self.events.get_event("EVENT_GOT_HM03"):  # 0xD857 SURF
+        if self.events.get_event("EVENT_GOT_HM03"):  # 0xD857, 0 SURF
             if self.auto_teach_surf and not self.check_if_party_has_hm(0x39):
                 self.teach_hm(TmHmMoves.SURF.value, 15, SURF_SPECIES_IDS)
             if self.auto_use_surf:
+                # set badge 5 (Koga - SoulBadge) if not obtained or can't use Surf
+                if self.read_bit(0xD356, 4) == 0:
+                    self.set_badge(5)
                 self.surf_if_attempt(VALID_ACTIONS[action])
 
-        if self.events.get_event("EVENT_GOT_HM04"):  # 0xD78E STRENGTH
+        if self.events.get_event("EVENT_GOT_HM04"):  # 0xD78E, 0 STRENGTH
             if self.auto_teach_strength and not self.check_if_party_has_hm(0x46):
                 self.teach_hm(TmHmMoves.STRENGTH.value, 15, STRENGTH_SPECIES_IDS)
             if self.auto_solve_strength_puzzles:
+                # set badge 4 (Erika - RainbowBadge) if not obtained or can't use Strength
+                if self.read_bit(0xD356, 3) == 0:
+                    self.set_badge(4)
                 self.solve_missable_strength_puzzle()
                 self.solve_switch_strength_puzzle()
 
+        if self.events.get_event("EVENT_GOT_HM02"): # 0xD7E0, 6 FLY
+            # if self.auto_teach_fly and not self.check_if_party_has_hm(0x02):
+            #     self.teach_hm(TmHmMoves.FLY.value, 15, FLY_SPECIES_IDS)
+                # # set badge 3 (Lt. Surge - ThunderBadge) if not obtained or can't use Fly
+                # if self.read_bit(0xD356, 3) == 0:
+                #     self.set_badge(1)
+            pass
+        
         if 'Poke Flute' in self.api.items.get_bag_item_ids() and self.auto_pokeflute:
             self.use_pokeflute()
 
@@ -1868,10 +1895,14 @@ class RedGymEnv(Env):
         gold_teeth_bit = 1
         current_value = self.pyboy.memory[gold_teeth_address]
         self.pyboy.memory[gold_teeth_address] = current_value | (1 << gold_teeth_bit)
-        self.put_strength_in_bag()
-        self.put_surf_in_bag()
+        self.put_item_in_bag(0xC7) # hm04 strength
+        self.put_item_in_bag(0xC6) # hm03 surf
+        # set event flags for got_surf and got_strength
         current_value_surf = self.pyboy.memory[0xD857]
         self.pyboy.memory[0xD857] = current_value_surf | (1 << 0)
+        current_value_strength = self.pyboy.memory[0xD78E]
+        self.pyboy.memory[0xD78E] = current_value_strength | (1 << 0)
+        
         c, r, map_n = self.get_game_coords()
         
         try:
@@ -1939,6 +1970,26 @@ class RedGymEnv(Env):
         self.pyboy.memory[0xD31F + idx * 2] = 1  # Item quantity
         self.compact_bag()
     
+        
+    def put_item_in_bag(self, item_id):
+        # Fetch current items in the bag without lookup
+        
+        item_id = item_id
+        current_items = self.api.items.get_bag_item_ids_no_lookup()
+        for i in current_items:
+            try:
+                if int(i, 16) == item_id:
+                    return
+            except:
+                continue
+            
+        index = self.index_count
+        self.pyboy.memory[0xD31E + index * 2] = item_id
+        self.pyboy.memory[0xD31F + index * 2] = 1  # Item quantity
+        self.index_count += 1
+        self.compact_bag()
+
+    
     def set_hm_event_flags(self):
         # Addresses and bits for each HM event
         hm_events = {
@@ -1953,8 +2004,15 @@ class RedGymEnv(Env):
             if hm in self.api.items.get_bag_item_ids():
                 current_value = self.pyboy.memory[address]
                 self.pyboy.memory[address] = current_value | (1 << bit)
-    
-    
+
+    def set_badge(self, badge_number):
+        badge_address = 0xD356
+        badge_value = self.pyboy.memory[badge_address]
+        # If we call self.set_badge(1), to set badge 1, we set bit 0 to True
+        new_badge_value = ram_map.set_bit(badge_value, badge_number - 1)        
+        # Write the new badge value to memory
+        self.pyboy.memory[badge_address] = new_badge_value
+        
     def use_pokeflute(self):
         coords = self.get_game_coords()
         if coords[2] == 23:
@@ -2139,8 +2197,13 @@ class RedGymEnv(Env):
 
         in_overworld = self.read_m("wCurMapTileset") == Tilesets.OVERWORLD.value
         in_plateau = self.read_m("wCurMapTileset") == Tilesets.PLATEAU.value
-        if in_overworld or in_plateau:
+        in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
+        print(f'current map tileset: {self.read_m("wCurMapTileset")}')
+        # c, r, map_n
+        surf_spots_in_cavern = [(23, 5, 162), (7, 11, 162), (7, 3, 162), (15, 7, 161), (23, 9, 161)]
+        if in_overworld or in_plateau or (in_cavern and self.get_game_coords() in surf_spots_in_cavern):
             _, wTileMap = self.pyboy.symbol_lookup("wTileMap")
+            print(f'wTileMap={wTileMap}')
             tileMap = self.pyboy.memory[wTileMap : wTileMap + 20 * 18]
             tileMap = np.array(tileMap, dtype=np.uint8)
             tileMap = np.reshape(tileMap, (18, 20))
@@ -2217,3 +2280,11 @@ class RedGymEnv(Env):
                 self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
                 self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
                 self.pyboy.tick(4 * self.action_freq, render=True)
+                
+            # press b bunch of times in case surf failed
+            for _ in range(5):
+                self.pyboy.send_input(WindowEvent.PRESS_BUTTON_B)
+                self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_B, delay=8)
+                self.pyboy.tick(4 * self.action_freq, render=True)
+
+

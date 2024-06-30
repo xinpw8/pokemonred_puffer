@@ -11,20 +11,35 @@ BADGE_1_ADDR = 0xD356
 WCUTTILE = 0xCD4D  # 61 if Cut used; 0 default. resets to default on map_n change or battle.
 
 
-GYM_LEADER = 5
-GYM_TRAINER = 2
-GYM_TASK = 2
+# GYM_LEADER = 5
+# GYM_TRAINER = 2
+# GYM_TASK = 2
+# TRAINER = 1
+# HM = 5
+# TM = 2
+# TASK = 2
+# POKEMON = 3
+# ITEM = 5
+# BILL_CAPT = 5
+# RIVAL = 3
+# QUEST = 5
+# EVENT = 1
+# BAD = -1
+
+GYM_LEADER = 1
+GYM_TRAINER = 1
+GYM_TASK = 1
 TRAINER = 1
-HM = 5
-TM = 2
-TASK = 2
-POKEMON = 3
-ITEM = 5
-BILL_CAPT = 5
-RIVAL = 3
-QUEST = 5
+HM = 1
+TM = 1
+TASK = 1
+POKEMON = 1
+ITEM = 1
+BILL_CAPT = 1
+RIVAL = 1
+QUEST = 1
 EVENT = 1
-BAD = -1
+BAD = 1
 
 
 def bulba(game):
