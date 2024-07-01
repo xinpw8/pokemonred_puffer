@@ -39,7 +39,7 @@ env:
   print_rewards: True
   video_dir: video
   state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
-  init_state: fuchsia_beat_koga_ready_to_surf # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
+  init_state: pokemon_mansion # fuchsia_beat_koga_ready_to_surf # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
   max_steps: 20480 # 40960 # 20480 # 20480 # 2048
   save_video: False
@@ -49,7 +49,7 @@ env:
   reduce_res: True
   two_bit: True
   fixed_x: False
-  log_frequency: 1000
+  log_frequency: 5000 # 1000
   infinite_money: True
   auto_flash: True
   auto_pokeflute: True
@@ -76,9 +76,9 @@ env:
   load_states_on_start_dir: saved_states/general_saved_states # load_states_on_start
   general_saved_state_dir: saved_states/general_saved_states
   save_each_env_state_freq: 5000000
-  save_all_env_states_bool: False
+  save_all_env_states_bool: True
   save_furthest_map_states: False
-  save_state: True
+  save_state: False
   load_states_on_start: False
   load_furthest_map_n_on_reset: False
 
@@ -118,7 +118,7 @@ train:
   save_checkpoint: True
   checkpoint_interval: 200
   save_overlay: True
-  overlay_interval: 50 # 50 # 50 # 100
+  overlay_interval: 50 # 100
   cpu_offload: True
   pool_kernel: [0]
   load_optimizer_state: False

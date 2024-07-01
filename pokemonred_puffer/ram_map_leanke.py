@@ -1658,6 +1658,21 @@ def gym8(game):
 
 
 # BET ADDED
+def monitor_gym1_events(game):
+    events_status_gym1 = {
+        "one": GYM_LEADER * int(read_bit(game, 0xD755, 7)),
+        "g1_1": GYM_TRAINER * int(read_bit(game, 0xD755, 2)),
+    }
+    return events_status_gym1  # sum(events_status_gym1.values())
+
+def monitor_gym2_events(game):
+    events_status_gym2 = {
+        "two": GYM_LEADER * int(read_bit(game, 0xD75E, 7)),
+        "g2_1": GYM_TRAINER * int(read_bit(game, 0xD75E, 2)),
+        "g2_2": GYM_TRAINER * int(read_bit(game, 0xD75E, 3)),
+    }
+    return events_status_gym2  # sum(events_status_gym2.values())
+
 def monitor_gym3_events(game):
     events_status_gym3 = {
         "lock_one": GYM_TASK * int(read_bit(game, 0xD773, 1)),

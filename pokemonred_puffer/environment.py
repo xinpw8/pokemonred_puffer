@@ -207,11 +207,13 @@ class RedGymEnv(Env):
         
         self.poke_flute_bag_flag = 0
         self.silph_scope_bag_flag = 0
+        self.cut_bag_flag = 0
         self.strength_bag_flag = 0
         self.surf_bag_flag = 0
         self.bicycle_bag_flag = 0
         self.silph_co_penalty = 0  # a counter that counts times env tries to go into silph co
         self.index_count = 0
+        self.stuck_count = 0
 
         # Set this in SOME subclasses
         self.metadata = {"render.modes": []}
@@ -368,26 +370,17 @@ class RedGymEnv(Env):
         self.reset(seed=random.randint(0, 10), options={"state": state})
 
     def save_all_states(self):
-        # Get the current map id from the game
-        _, _, map_n = self.get_game_coords()  # Assuming this method returns row, col, map_n
-        # Get the map name
+        _, _, map_n = self.get_game_coords()  # c, r, map_n
         map_name = get_map_name(map_n)
-        # Define the directory where the saved state will be stored
         saved_state_dir = self.save_each_env_state_dir
-        # Add the step count to the directory path
         saved_state_dir = os.path.join(saved_state_dir, f"step_{self.global_step_count}_saves")
-        # Check if the directory exists, if not, create it
         if not os.path.exists(saved_state_dir):
             os.makedirs(saved_state_dir, exist_ok=True)
-        # Define the filename for the saved state, using env_id and map name for uniqueness
         saved_state_file = os.path.join(saved_state_dir, f"state_{self.env_id}_{map_name}.state")
-        # Save the game state to the file
         with open(saved_state_file, "wb") as file:
             self.pyboy.save_state(file)
             logging.info(f"State saved for env_id: {self.env_id} to file {saved_state_file}; global step: {self.global_step_count}")
-        # Print confirmation message
         print("State saved for env_id:", self.env_id, "on map:", map_name)
-        # Mark that the state has been saved
         self.state_already_saved = True
 
     def load_all_states(self):
@@ -397,33 +390,40 @@ class RedGymEnv(Env):
             if self.load_states_on_start_dir
             else self.save_each_env_state_dir
         )
-        print(f"saved_state_dir: {saved_state_dir}")
+        # print(f"saved_state_dir: {saved_state_dir}")
         if not os.path.exists(saved_state_dir):
             os.makedirs(saved_state_dir, exist_ok=True)
         # Try to load the state for the current env_id
         saved_state_file = os.path.join(saved_state_dir, f"state_{self.env_id}.state")
         # Check if the saved state file exists
-        if os.path.exists(saved_state_file):
-            # Load the game state from the file
-            with open(saved_state_file, "rb") as file:
-                self.pyboy.load_state(file)
-            # Print confirmation message
-            print(f"State loaded for env_id: {self.env_id}")
-        else:
-            # Load a random state if the state for the current env_id does not exist
-            state_files = [f for f in os.listdir(saved_state_dir) if f.endswith(".state")]
-            if state_files:
-                # Choose a random state file
-                random_state_file = os.path.join(saved_state_dir, random.choice(state_files))
-                # Load the game state from the randomly chosen file
-                with open(random_state_file, "rb") as file:
+        try:
+            if os.path.exists(saved_state_file):
+                # Load the game state from the file
+                with open(saved_state_file, "rb") as file:
                     self.pyboy.load_state(file)
                 # Print confirmation message
-                print(
-                    f"No state found for env_id: {self.env_id}. Loaded random state: {random_state_file}"
-                )
+                print(f"State loaded for env_id: {self.env_id} from file: {saved_state_file} in {saved_state_dir}")
+                logging.info(f"State loaded for env_id: {self.env_id} from file: {saved_state_file} in {saved_state_dir}")
             else:
-                print(f"No saved states found in {saved_state_dir}")
+                # Load a random state if the state for the current env_id does not exist
+                state_files = [f for f in os.listdir(saved_state_dir) if f.endswith(".state")]
+                if state_files:
+                    # Choose a random state file
+                    random_state_file = os.path.join(saved_state_dir, random.choice(state_files))
+                    # Load the game state from the randomly chosen file
+                    with open(random_state_file, "rb") as file:
+                        self.pyboy.load_state(file)
+                    # Print confirmation message
+                    print(
+                        f"No state found for env_id: {self.env_id} in {saved_state_dir}. Loaded random state: {random_state_file}"
+                    )
+                    logging.info(f'No state found for env_id: {self.env_id} in {saved_state_dir}. Loaded random state: {random_state_file}')
+                else:
+                    print(f"No saved states found in {saved_state_dir}.")
+                    logging.info(f'No saved states found in {saved_state_dir}.')
+        except Exception as e:
+            print(f"env_id: {self.env_id}: Error loading state: {e}")
+            logging.error(f"env_id: {self.env_id}: Error loading state: {e}")
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
         self.explore_map_dim = 384
@@ -431,7 +431,6 @@ class RedGymEnv(Env):
         if self.first or options.get("state", None) is not None:
             self.recent_screens = deque()
             self.recent_actions = deque()
-            self.init_mem()
             self.reset_bag_item_rewards()
             self.seen_hidden_objs = {}
             self.seen_signs = {}
@@ -457,18 +456,18 @@ class RedGymEnv(Env):
         else:
             self.reset_count += 1
 
+        self.last_coords = self.get_game_coords()
         if self.load_furthest_map_n_on_reset:
             if self.reset_count % 6 == 0:
                 self.load_furthest_state()
                 ram_map.update_party_hp_to_max(self.pyboy)
                 ram_map.restore_party_move_pp(self.pyboy)
 
+        # skip script management
         if self.skip_safari_zone_triggered:
-            self.skip_safari_zone()
-            
+            self.skip_safari_zone()            
         if self.skip_rocket_hideout_triggered:
-            self.skip_rocket_hideout()
-        
+            self.skip_rocket_hideout()        
         if self.skip_silph_co_triggered:
             self.skip_silph_co()
         
@@ -480,14 +479,39 @@ class RedGymEnv(Env):
         self.caught_pokemon.fill(0)
         self.moves_obtained.fill(0)
         self.reset_mem()
-        self.reset_bag_item_vars()
+        self.init_mem()
         self.cut_explore_map *= 0
         
         self.events = EventFlags(self.pyboy)
         self.missables = MissableFlags(self.pyboy)
         self.update_pokedex()
+        
+        # hm management
         self.update_tm_hm_moves_obtained()
         self.taught_cut = self.check_if_party_has_hm(0xF)
+        self.taught_strength = self.check_if_party_has_hm(0x46)
+        self.taught_surf = self.check_if_party_has_hm(0x39)
+        self.taught_fly = self.check_if_party_has_hm(0x13)
+        self.taught_flash = self.check_if_party_has_hm(0x0C)
+        
+        # items management        
+        if self.auto_remove_all_nonuseful_items:
+            self.remove_all_nonuseful_items()
+        self.reset_bag_item_vars()
+        
+        if self.poke_flute_bag_flag:
+            self.put_poke_flute_in_bag()
+        if self.silph_scope_bag_flag:
+            self.put_silph_scope_in_bag()
+        if self.bicycle_bag_flag:
+            self.put_bicycle_in_bag()
+        if self.strength_bag_flag:
+            self.put_item_in_bag(0xC7) # hm04 strength
+        if self.cut_bag_flag:
+            self.put_item_in_bag(0xC4) # hm01 cut
+        if self.surf_bag_flag:
+            self.put_item_in_bag(0xC6) # hm03 surf
+            
         self.levels_satisfied = False
         self.base_explore = 0
         self.max_opponent_level = 0
@@ -513,10 +537,13 @@ class RedGymEnv(Env):
         self.total_reward = sum([val for _, val in self.progress_reward.items()])
 
         self.first = False
-        state = io.BytesIO()
-        self.pyboy.save_state(state)
-        state.seek(0)
-        return self._get_obs(), {"state": state.read()}
+        infos = {}
+        if self.save_state:
+            state = io.BytesIO()
+            self.pyboy.save_state(state)
+            state.seek(0)
+            infos |= {"state": state.read()}
+        return self._get_obs(), infos
 
     def init_mem(self):
         # Maybe I should preallocate a giant matrix for all map ids
@@ -626,6 +653,7 @@ class RedGymEnv(Env):
         if self.reduce_res:
             game_pixels_render = game_pixels_render[::2, ::2, :]
         player_x, player_y, map_n = self.get_game_coords()
+        self.last_coords = (player_x, player_y, map_n)
         visited_mask = np.zeros_like(game_pixels_render)
         scale = 2 if self.reduce_res else 1
         if self.read_m(0xD057) == 0:
@@ -745,15 +773,6 @@ class RedGymEnv(Env):
     def check_if_party_has_hm(self, hm: int) -> bool:
         return self.api.does_party_have_hm(hm)
             
-    # def check_if_party_has_hm(self, hm: int) -> bool:
-    #     party_size = self.read_m("wPartyCount")
-    #     for i in range(party_size):
-    #         # PRET 1-indexes
-    #         _, addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")
-    #         if hm in self.pyboy.memory[addr : addr + 4]:
-    #             return True
-    #     return False
-
     def party_has_cut_capable_mon(self):
         # find bulba and replace tackle (first skill) with cut
         party_size = self.read_m("wPartyCount")
@@ -854,21 +873,22 @@ class RedGymEnv(Env):
             self.has_bicycle_in_bag_reward = 20
 
     def step(self, action):
-        self.events.update()
+        self.stuck_detector()
+        self.unstucker()
         
         # Deal with Cycling Route gate problems
         c, r, map_n = self.get_game_coords()
-        if self.last_map != map_n:
-            self.new_map = True
-        else:
-            self.new_map = False
+        # if self.last_map != map_n:
+        #     self.new_map = True
+        # else:
+        #     self.new_map = False
 
-        if map_n in [84, 86]:
-            self.last_map_gate = True
-        if map_n in [84, 86] and self.new_map and self.last_map_gate:
-            new_reward = -self.total_reward * 0.5
+        # if map_n in [84, 86]:
+        #     self.last_map_gate = True
+        # if map_n in [84, 86] and self.new_map and self.last_map_gate:
+        #     new_reward = -self.total_reward * 0.5
 
-        self.last_map = map_n
+        # self.last_map = map_n
 
         if self.save_video and map_n in [84, 86]:  # self.step_count == 0:
             self.start_video()
@@ -876,9 +896,6 @@ class RedGymEnv(Env):
         _, wMapPalOffset = self.pyboy.symbol_lookup("wMapPalOffset")
         if self.auto_flash and self.pyboy.memory[wMapPalOffset] == 6:
             self.pyboy.memory[wMapPalOffset] = 0
-
-        if self.auto_remove_all_nonuseful_items:
-            self.remove_all_nonuseful_items()
 
         _, wPlayerMoney = self.pyboy.symbol_lookup("wPlayerMoney")
         if (
@@ -906,25 +923,31 @@ class RedGymEnv(Env):
         self.update_seen_coords()
 
         if (
-            self.put_poke_flute_in_bag_bool
+            self.put_poke_flute_in_bag_bool and not self.poke_flute_bag_flag
             and ram_map_leanke.monitor_poke_tower_events(self.pyboy)["rescued_mr_fuji_1"]
-        ) or self.poke_flute_bag_flag:
+        ):
             self.put_poke_flute_in_bag()
+            self.poke_flute_bag_flag = True
         if (
-            self.put_silph_scope_in_bag_bool
+            self.put_silph_scope_in_bag_bool and not self.silph_scope_bag_flag
             and ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"]
-        ) or self.silph_scope_bag_flag:
+        ):
             self.put_silph_scope_in_bag()
-        if self.skip_safari_zone_bool and c in [15, 18, 19] and r in [4, 5, 7] and map_n == 7:
-            self.skip_safari_zone()
-        if self.put_bicycle_in_bag_bool:
+            self.silph_scope_bag_flag = True
+        # if self.skip_safari_zone_bool and c in [15, 18, 19] and r in [4, 5, 7] and map_n == 7:
+        #     self.skip_safari_zone()
+        if self.put_bicycle_in_bag_bool and not self.bicycle_bag_flag:
             self.put_bicycle_in_bag()
-        if self.put_strength_in_bag_bool or self.strength_bag_flag:
+            self.bicycle_bag_flag = True
+        if self.put_strength_in_bag_bool and not self.strength_bag_flag:
             self.put_item_in_bag(0xC7) # hm04 strength
-        if self.put_cut_in_bag_bool or self.cut_bag_flag:
+            self.strength_bag_flag = True
+        if self.put_cut_in_bag_bool and not self.cut_bag_flag:
             self.put_item_in_bag(0xC4) # hm01 cut
-        if self.put_surf_in_bag_bool or self.surf_bag_flag:
+            self.cut_bag_flag = True
+        if self.put_surf_in_bag_bool and not self.surf_bag_flag:
             self.put_item_in_bag(0xC6) # hm03 surf
+            self.surf_bag_flag = True
             
         # set hm event flags if hm is in bag
         self.set_hm_event_flags()
@@ -942,9 +965,7 @@ class RedGymEnv(Env):
 
         if self.perfect_ivs:
             self.set_perfect_iv_dvs()
-        self.taught_cut = self.check_if_party_has_hm(0x0F)
-        self.taught_surf = self.check_if_party_has_hm(0x39)
-        self.taught_strength = self.check_if_party_has_hm(0x46)
+
         self.pokecenters[self.read_m("wLastBlackoutMap")] = 1
         info = {}
 
@@ -977,72 +998,9 @@ class RedGymEnv(Env):
             new_reward = -self.total_reward * 0.5
 
         return obs, new_reward, reset, False, info
-    
-    # def step(self, action):
-    #     if self.save_video and self.step_count == 0:
-    #         self.start_video()
-
-    #     _, wMapPalOffset = self.pyboy.symbol_lookup("wMapPalOffset")
-    #     if self.auto_flash and self.pyboy.memory[wMapPalOffset] == 6:
-    #         self.pyboy.memory[wMapPalOffset] = 0
-
-    #     # Call nimixx api
-    #     self.api.process_game_states()
-    #     current_bag_items = self.api.items.get_bag_item_ids()
-    #     self.check_bag_items(current_bag_items)
-
-    #     # if self._get_obs()["screen"].shape != (72, 20, 1):
-    #     #     logging.info(
-    #     #         f'env_{self.env_id}: Step observation shape: {self._get_obs()["screen"].shape}'
-    #     #     )
-
-    #     self.run_action_on_emulator(action)
-        
-    #     if self.put_poke_flute_in_bag_bool and ram_map_leanke.monitor_poke_tower_events(self.pyboy)["rescued_mr_fuji_1"]:
-    #         self.put_poke_flute_in_bag()
-    #     if self.put_silph_scope_in_bag_bool and ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"]:
-    #         self.put_silph_scope_in_bag()
-        
-    #     self.update_seen_coords()
-    #     self.update_health()
-    #     self.update_pokedex()
-    #     self.update_tm_hm_moves_obtained()
-    #     self.party_size = self.read_m("wPartyCount")
-    #     self.update_max_op_level()
-    #     new_reward = self.update_reward()
-    #     self.last_health = self.read_hp_fraction()
-        
-    #     if self.save_furthest_map_states:
-    #         self.update_map_progress()
-            
-    #     if self.perfect_ivs:
-    #         self.set_perfect_iv_dvs()
-    #     self.taught_cut = self.check_if_party_has_hm(0xF)
-    #     self.pokecenters[self.read_m("wLastBlackoutMap")] = 1
-    #     info = {}
-
-    #     if self.get_events_sum() > self.max_event_rew:
-    #         state = io.BytesIO()
-    #         self.pyboy.save_state(state)
-    #         state.seek(0)
-    #         info["state"] = state.read()
-
-    #     if self.step_count % self.log_frequency == 0:
-    #         info = info | self.agent_stats(action)
-
-    #     self.global_step_count = self.step_count + self.reset_count * self.max_steps
-            
-    #     if self.save_all_env_states_bool and self.global_step_count > 0 and self.global_step_count % self.save_each_env_state_freq == 0:
-    #         self.save_all_states()
-
-    #     obs = self._get_obs()
-
-    #     self.step_count += 1
-    #     reset = self.step_count >= self.max_steps
-
-    #     return obs, new_reward, reset, False, info
         
     def run_action_on_emulator(self, action):
+        c, r, map_n = self.get_game_coords()
         self.action_hist[action] += 1
         # press button then release after some steps
         # TODO: Add video saving logic
@@ -1060,7 +1018,7 @@ class RedGymEnv(Env):
             if self.auto_use_cut:
                 # set badge 2 (Misty - CascadeBadge) if not obtained or can't use Cut
                 if self.read_bit(0xD356, 0) == 0:
-                    self.set_badge(1)
+                    self.set_badge(2)
                 self.cut_if_next()
 
         if self.events.get_event("EVENT_GOT_HM03"):  # 0xD857, 0 SURF
@@ -1090,81 +1048,20 @@ class RedGymEnv(Env):
                 #     self.set_badge(1)
             pass
         
-        if 'Poke Flute' in self.api.items.get_bag_item_ids() and self.auto_pokeflute:
+        if (map_n in [27, 25] or map_n == 23) and self.auto_pokeflute and 'Poke Flute' in self.api.items.get_bag_item_ids():
             self.use_pokeflute()
-
-        if ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"] != 0 and self.skip_rocket_hideout_bool:
+        elif self.skip_rocket_hideout_bool and ((c == 5 and r in list(range(11, 18)) and map_n == 135) or (c == 5 and r == 17 and map_n == 135)) and ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"] != 0:
             self.skip_rocket_hideout()
-
-        if self.skip_silph_co_bool and int(self.read_bit(0xD76C, 0)) != 0:  # has poke flute
+        elif self.skip_silph_co_bool and int(self.read_bit(0xD76C, 0)) != 0 and (c == 18 and r == 23 and map_n == 10 or ((c == 17 or c == 18) and r == 22 and map_n == 10)):  # has poke flute
             self.skip_silph_co()
-
-        if (
-            self.skip_safari_zone_bool
-            and self.pyboy.memory[self.pyboy.symbol_lookup("wCurMap")[1]] == 7
-        ):
+        elif self.skip_safari_zone_bool and c in [15, 18, 19] and r in [4, 5, 7] and map_n == 7:
             self.skip_safari_zone()
-
-
-    # def run_action_on_emulator(self, action):
-    #     self.action_hist[action] += 1
-    #     # press button then release after some steps
-    #     # TODO: Add video saving logic
-
-    #     if not self.disable_ai_actions:
-    #         self.pyboy.send_input(VALID_ACTIONS[action])
-    #         self.pyboy.send_input(VALID_RELEASE_ACTIONS[action], delay=8)
-    #     self.pyboy.tick(self.action_freq, render=True)
-
-    #     if self.read_bit(0xD803, 0):
-    #         if self.auto_teach_cut and not self.check_if_party_has_hm(0x0F):
-    #             self.teach_hm(TmHmMoves.CUT.value, 30, CUT_SPECIES_IDS)
-    #         if self.auto_use_cut:
-    #             self.cut_if_next()
-
-    #     if self.read_bit(0xD78E, 0):
-    #         if self.auto_teach_surf and not self.check_if_party_has_hm(0x39):
-    #             self.teach_hm(TmHmMoves.SURF.value, 15, SURF_SPECIES_IDS)
-    #         if self.auto_use_surf:
-    #             self.surf_if_attempt(VALID_ACTIONS[action])
-
-    #     if self.read_bit(0xD857, 0):
-    #         if self.auto_teach_strength and not self.check_if_party_has_hm(0x46):
-    #             self.teach_hm(TmHmMoves.STRENGTH.value, 15, STRENGTH_SPECIES_IDS)
-    #         if self.auto_solve_strength_puzzles:
-    #             self.solve_missable_strength_puzzle()
-    #             self.solve_switch_strength_puzzle()
-
-    #     if self.read_bit(0xD76C, 0) and self.auto_pokeflute:
-    #         self.use_pokeflute()
-
-    #     if ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"] != 0 and self.skip_rocket_hideout_bool:
-    #         self.skip_rocket_hideout()
-
-    # def run_action_on_emulator_step_handler(self, step_handler, action):
-    #     StepHandler.run_action_on_emulator(action)
 
     #     # TODO: Add support for video recording
     #     # if save_video and fast_video:
     #     #     add_video_frame()
     #     if check_if_party_has_cut(pyboy):
     #         cut_if_next(pyboy)
-
-    def teach_cut(self):
-        # find bulba and replace tackle (first skill) with cut
-        party_size = self.read_m("wPartyCount")
-        for i in range(party_size):
-            # PRET 1-indexes
-            _, species_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
-            poke = self.pyboy.memory[species_addr]
-            # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/pokemon_constants.asm
-            if poke in CUT_SPECIES_IDS:
-                slot = 0
-                _, move_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")
-                _, pp_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}PP")
-                self.pyboy.memory[move_addr + slot] = 15
-                self.pyboy.memory[pp_addr + slot] = 30
-                # fill up pp: 30/30
 
     def teach_hm(self, tmhm: int, pp: int, pokemon_species_ids):
         # find bulba and replace tackle (first skill) with cut
@@ -1364,6 +1261,9 @@ class RedGymEnv(Env):
         bag_item_ids = bag[::2]
 
         safari_events = ram_map_leanke.monitor_safari_events(self.pyboy)
+        gym_1_events = ram_map_leanke.monitor_gym1_events(self.pyboy)
+        gym_2_events = ram_map_leanke.monitor_gym2_events(self.pyboy)
+        gym_3_events = ram_map_leanke.monitor_gym3_events(self.pyboy)
         gym_4_events = ram_map_leanke.monitor_gym4_events(self.pyboy)
         gym_5_events = ram_map_leanke.monitor_gym5_events(self.pyboy)
         gym_6_events = ram_map_leanke.monitor_gym6_events(self.pyboy)
@@ -1413,11 +1313,11 @@ class RedGymEnv(Env):
                 "badge_8": int(self.get_badges() >= 8),
                 },
                 "hms": {
-                "taught_cut": int(self.check_if_party_has_hm(0xF)),
-                "taught_surf": int(self.check_if_party_has_hm(0x39)),
-                "taught_strength": int(self.check_if_party_has_hm(0x46)),
-                "taught_fly": int(self.check_if_party_has_hm(0x48)),
-                "taught_flash": int(self.check_if_party_has_hm(0x10)),
+                "taught_cut": self.taught_cut, # int(self.check_if_party_has_hm(0xF)),
+                "taught_surf": self.taught_surf, # int(self.check_if_party_has_hm(0x39)),
+                "taught_strength": self.taught_strength, # int(self.check_if_party_has_hm(0x46)),
+                "taught_fly": self.taught_fly, # int(self.check_if_party_has_hm(0x48)),
+                "taught_flash": self.taught_flash, # int(self.check_if_party_has_hm(0x10)),
                 },
                 "menu": {
                 "start_menu": self.seen_start_menu,
@@ -1456,11 +1356,17 @@ class RedGymEnv(Env):
                 "rescued_mr_fuji_2": int(self.read_bit(0xD769, 7)),
                 "beat_silph_co_giovanni": int(self.read_bit(0xD838, 7)),
                 "got_poke_flute": int(self.read_bit(0xD76C, 0)),
-                "silph_co_skipped": self.silph_co_skipped,
+                "silph_co_skipped": self.skip_silph_co_triggered,
+                "rocket_hideout_skipped": self.skip_rocket_hideout_triggered,
+                "safari_zone_skipped": self.skip_safari_zone_triggered,
                 "rival3": int(self.read_m(0xD665) == 4),
                 **{event: self.events.get_event(event) for event in REQUIRED_EVENTS},
+                "events_sum": self.get_events_sum(),
             },
             "gym": {
+                "beat_gym_1_leader_brock": gym_1_events["one"],
+                "beat_gym_2_leader_misty": gym_2_events["two"],
+                "beat_gym_3_leader_lt_surge": gym_3_events["three"],
                 "beat_gym_4_leader_erika": gym_4_events["four"],
                 "beat_gym_5_leader_koga": gym_5_events["five"],
                 "beat_gym_6_leader_sabrina": gym_6_events["six"],
@@ -1751,15 +1657,15 @@ class RedGymEnv(Env):
         return self.silph_co_penalty
 
     def load_furthest_state(self):
-        if self.skip_silph_co_bool:
-            saved_state_dir = self.general_saved_state_dir
-            saved_state_pattern = f"skip_silph_co_env_id_{self.env_id}_map_n_"
-        elif self.skip_safari_zone_bool:
-            saved_state_dir = self.general_saved_state_dir
-            saved_state_pattern = f"skip_safari_zone_env_id_{self.env_id}_map_n_"
-        else:
-            saved_state_dir = self.furthest_states_dir
-            saved_state_pattern = f"furthest_state_env_id_{self.env_id}_map_n_"
+        # if self.skip_silph_co_bool:
+        #     saved_state_dir = self.general_saved_state_dir
+        #     saved_state_pattern = f"skip_silph_co_env_id_{self.env_id}_map_n_"
+        # elif self.skip_safari_zone_bool:
+        #     saved_state_dir = self.general_saved_state_dir
+        #     saved_state_pattern = f"skip_safari_zone_env_id_{self.env_id}_map_n_"
+        # else:
+        saved_state_dir = self.furthest_states_dir
+        saved_state_pattern = f"furthest_state_env_id_{self.env_id}_map_n_"
 
         # Find the state file that matches the pattern
         state_file = None
@@ -1788,6 +1694,29 @@ class RedGymEnv(Env):
 
     def get_hm_count(self) -> int:
         return len(HM_ITEM_IDS.intersection(self.get_items_in_bag()))
+
+    def stuck_detector(self):
+        try:            
+            (c, r, map_n) = self.get_game_coords()
+            if (c, r, map_n) == self.last_coords:
+                self.stuck_count += 1
+            else:
+                self.stuck_count = 0
+        except Exception as e:
+            logging.info(f'env_id: {self.env_id} had exception in stuck_detector. error={e}')
+            pass
+            
+    def unstucker(self):
+        if self.stuck_count > 1000:
+            try:
+                self.stuck_count = 0
+                self.load_all_states()
+                self.reset_count += 1
+                self.reset()
+            except Exception as e:
+                logging.info(f'env_id: {self.env_id} had exception in unstucker. error={e}')
+                pass
+            return True
 
     def get_levels_reward(self):
         # Level reward
@@ -2286,5 +2215,3 @@ class RedGymEnv(Env):
                 self.pyboy.send_input(WindowEvent.PRESS_BUTTON_B)
                 self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_B, delay=8)
                 self.pyboy.tick(4 * self.action_freq, render=True)
-
-
