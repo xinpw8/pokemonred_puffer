@@ -339,8 +339,9 @@ env:
   init_state: pokemon_mansion # fuchsia_beat_koga_ready_to_surf # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
   max_steps: 20480 # 40960 # 20480 # 20480 # 2048
-  save_video: False # False
+  save_video: True # False
   stuck_video: False
+  only_record_stuck_state: True
   fast_video: True
   frame_stacks: 1
   perfect_ivs: True
@@ -369,7 +370,8 @@ env:
   put_strength_in_bag_bool: True
   put_surf_in_bag_bool: True
   put_cut_in_bag_bool: True
-  auto_remove_all_nonuseful_items: True
+  auto_remove_all_nonuseful_items: False
+  item_testing: True
 
   # infinite_money: False
   # auto_flash: False

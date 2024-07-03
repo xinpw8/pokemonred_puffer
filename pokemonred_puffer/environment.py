@@ -36,11 +36,13 @@ from pokemonred_puffer.data_files.events import (
     MUSEUM_TICKET,
     REQUIRED_EVENTS,
     EventFlags,
+    EventFlagsBits,
 )
 from pokemonred_puffer.data_files.field_moves import FieldMoves
 from pokemonred_puffer.data_files.items import (
     HM_ITEM_IDS,
-    KEY_ITEM_IDS,
+    HM_ITEMS,
+    KEY_ITEMS,
     MAX_ITEM_CAPACITY,
     REQUIRED_ITEMS,
     USEFUL_ITEMS,
@@ -87,6 +89,7 @@ class RedGymEnv(Env):
         self.action_freq = env_config.action_freq
         self.max_steps = env_config.max_steps
         self.fast_video = env_config.fast_video
+        self.only_record_stuck_state = env_config.only_record_stuck_state
         self.perfect_ivs = env_config.perfect_ivs
         self.reduce_res = env_config.reduce_res
         self.gb_path = env_config.gb_path
@@ -125,6 +128,7 @@ class RedGymEnv(Env):
         self.put_surf_in_bag_bool = env_config.put_surf_in_bag_bool
         self.put_cut_in_bag_bool = env_config.put_cut_in_bag_bool
         self.auto_remove_all_nonuseful_items = env_config.auto_remove_all_nonuseful_items
+        self.item_testing = env_config.item_testing
         self.action_space = ACTION_SPACE
         self.levels = 0
         self.reset_count = 0
@@ -211,10 +215,13 @@ class RedGymEnv(Env):
             self.model_frame_writer = None
             self.map_frame_writer = None
             self.stuck_video_started = False
-            self.max_video_frames = 10000  # Maximum number of frames per video
+            self.max_video_frames = 600  # Maximum number of frames per video
             self.frame_count = 0
+            if self.only_record_stuck_state:
+                self.stuck_state_recording_counter = 0
+                self.stuck_state_recording_started = False
             
-        self.stuck_threshold = 100 
+        self.stuck_threshold = 24480 
         self.reset_count = 0
         self.all_runs = []
         self.global_step_count = 0
@@ -403,7 +410,7 @@ class RedGymEnv(Env):
         with open(saved_state_file, "wb") as file:
             self.pyboy.save_state(file)
             logging.info(f"State saved for env_id: {self.env_id} to file {saved_state_file}; global step: {self.global_step_count}")
-        print("State saved for env_id:", self.env_id, "on map:", map_name)
+        print("State saved for env_id:", self.env_id, "on map:", map_name, "to file:", saved_state_file)
         self.state_already_saved = True
 
     def load_all_states(self):
@@ -420,8 +427,8 @@ class RedGymEnv(Env):
         )
         
         # Print the directory being used
-        print(f"Using saved state directory: {saved_state_dir}")
-        logging.info(f"Using saved state directory: {saved_state_dir}")
+        print(f"env_id: {self.env_id}: Using saved state directory: {saved_state_dir}")
+        logging.info(f"env_id: {self.env_id}: Using saved state directory: {saved_state_dir}")
         
         # Ensure the directory exists
         if not os.path.exists(saved_state_dir):
@@ -461,7 +468,7 @@ class RedGymEnv(Env):
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
         # rn for EVAL only
         # sloppy ik
-        if self.save_video:
+        if self.save_video and not self.only_record_stuck_state:
             self.start_video()
             
         self.explore_map_dim = 384
@@ -495,7 +502,11 @@ class RedGymEnv(Env):
         else:
             self.reset_count += 1
 
+        
         self.last_coords = self.get_game_coords()
+        if self.reset_count % 2 == 0:
+            self.save_all_states()
+        
         if self.load_furthest_map_n_on_reset:
             if self.reset_count % 6 == 0:
                 self.load_furthest_state()
@@ -538,18 +549,7 @@ class RedGymEnv(Env):
             self.remove_all_nonuseful_items()
         self.reset_bag_item_vars()
         
-        if self.poke_flute_bag_flag:
-            self.put_poke_flute_in_bag()
-        if self.silph_scope_bag_flag:
-            self.put_silph_scope_in_bag()
-        if self.bicycle_bag_flag:
-            self.put_bicycle_in_bag()
-        if self.strength_bag_flag:
-            self.put_item_in_bag(0xC7) # hm04 strength
-        if self.cut_bag_flag:
-            self.put_item_in_bag(0xC4) # hm01 cut
-        if self.surf_bag_flag:
-            self.put_item_in_bag(0xC6) # hm03 surf
+        self.place_specific_items_in_bag()
             
         self.levels_satisfied = False
         self.base_explore = 0
@@ -665,106 +665,6 @@ class RedGymEnv(Env):
             mode="constant",
         )
 
-    # def fixed_x(self, arr, y, x, window_size):
-    #     height, width, _ = arr.shape
-    #     h_w, w_w = window_size[0] // 2, window_size[1] // 2
-
-    #     y_min = max(0, y - h_w)
-    #     y_max = min(height, y_min + window_size[0])
-    #     x_min = max(0, x - w_w)
-    #     x_max = min(width, x_min + window_size[1])
-
-    #     window = arr[y_min:y_max, x_min:x_max]
-
-    #     pad_top = max(0, y - y_min)
-    #     pad_bottom = max(0, window_size[0] - (y_max - y_min))
-    #     pad_left = max(0, x - x_min)
-    #     pad_right = max(0, window_size[1] - (x_max - x_min))
-
-    #     return np.pad(
-    #         window,
-    #         ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)),
-    #         mode="constant",
-    #     )
-
-    # def render(self):
-    #     game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
-    #     if self.reduce_res:
-    #         game_pixels_render = game_pixels_render[::2, ::2, :]
-    #     player_x, player_y, map_n = self.get_game_coords()
-    #     self.last_coords = (player_x, player_y, map_n)
-    #     visited_mask = np.zeros_like(game_pixels_render)
-    #     scale = 2 if self.reduce_res else 1
-    #     if self.read_m(0xD057) == 0:
-    #         # for y in range(-72 // 16, 72 // 16):
-    #         #     for x in range(-80 // 16, 80 // 16):
-    #         #         visited_mask[
-    #         #             (16 * y + 76) // scale : (16 * y + 16 + 76) // scale,
-    #         #             (16 * x + 80) // scale : (16 * x + 16 + 80) // scale,
-    #         #             :,
-    #         #         ] = int(
-    #         #             self.seen_coords.get(
-    #         #                 (
-    #         #                     player_x + x + 1,
-    #         #                     player_y + y + 1,
-    #         #                     map_n,
-    #         #                 ),
-    #         #                 0,
-    #         #             )
-    #         #             * 255
-    #         #         )
-    #         gr, gc = local_to_global(player_y, player_x, map_n)
-    #         visited_mask = (
-    #             255
-    #             * np.repeat(
-    #                 np.repeat(self.explore_map[gr - 4 : gr + 6, gc - 4 : gc + 6], 16 // scale, 0),
-    #                 16 // scale,
-    #                 -1,
-    #             )
-    #         ).astype(np.uint8)[6 // scale : -10 // scale, :]
-    #         visited_mask = np.expand_dims(visited_mask, -1)
-
-    #     if self.use_fixed_x:
-    #         fixed_window = self.fixed_x(
-    #             game_pixels_render, player_y, player_x, self.observation_space["fixed_x"].shape
-    #         )
-
-    #     if self.two_bit:
-    #         game_pixels_render = (
-    #             (
-    #                 np.digitize(
-    #                     game_pixels_render.reshape((-1, 4)), PIXEL_VALUES, right=True
-    #                 ).astype(np.uint8)
-    #                 << np.array([6, 4, 2, 0], dtype=np.uint8)
-    #             )
-    #             .sum(axis=1, dtype=np.uint8)
-    #             .reshape((-1, game_pixels_render.shape[1] // 4, 1))
-    #         )
-    #         visited_mask = (
-    #             (
-    #                 np.digitize(
-    #                     visited_mask.reshape((-1, 4)),
-    #                     np.array([0, 64, 128, 255], dtype=np.uint8),
-    #                     right=True,
-    #                 ).astype(np.uint8)
-    #                 << np.array([6, 4, 2, 0], dtype=np.uint8)
-    #             )
-    #             .sum(axis=1, dtype=np.uint8)
-    #             .reshape(game_pixels_render.shape)
-    #             .astype(np.uint8)
-    #         )
-
-    #     if self.use_fixed_x:
-    #         return {
-    #             "screen": game_pixels_render,
-    #             "visited_mask": visited_mask,
-    #             "fixed_x": fixed_window,
-    #         }
-    #     else:
-    #         return {
-    #             "screen": game_pixels_render,
-    #             "visited_mask": visited_mask,
-    #         }
     def render(self):
         game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
 
@@ -991,7 +891,17 @@ class RedGymEnv(Env):
             self.has_bicycle_in_bag_reward = 20
 
     def step(self, action):
-        # c, r, map_n = self.get_game_coords()
+        
+        # record video when agent gets stuck in specific seafoam islands map
+        c, r, map_n = self.get_game_coords()
+        if (c, r, map_n) == (25, 16, 162) and self.stuck_state_recording_counter < 100 and not self.stuck_state_recording_started:
+            self.stuck_state_recording_counter += 1
+        if self.stuck_state_recording_counter >= 100:
+            self.stuck_state_recording_counter = 0
+            self.stuck_state_recording_started = True
+            self.start_video()
+            
+            
         # if not self.read_m(0xD057) == 0:
         #     self.stuck_detector(c, r, map_n)
         # if self.unstucker(c, r, map_n):
@@ -1010,8 +920,15 @@ class RedGymEnv(Env):
         #     new_reward = -self.total_reward * 0.5
 
         # self.last_map = map_n
-            
-        if self.save_video: #  and self.stuck_video_started:
+        
+        if self.save_video and self.only_record_stuck_state and self.stuck_state_recording_started:
+            if self.frame_count <= self.max_video_frames:
+                self.add_v_frame()
+                self.frame_count += 1
+            else:
+                self.full_frame_writer.close()
+                self.load_all_states()
+        elif self.save_video and not self.only_record_stuck_state:
             self.add_v_frame()
             
         # if self.stuck_video_started:
@@ -1046,35 +963,14 @@ class RedGymEnv(Env):
         self.missables = MissableFlags(self.pyboy)
         self.update_seen_coords()
 
-        if (
-            self.put_poke_flute_in_bag_bool and not self.poke_flute_bag_flag
-            and ram_map_leanke.monitor_poke_tower_events(self.pyboy)["rescued_mr_fuji_1"]
-        ):
-            self.put_poke_flute_in_bag()
-            self.poke_flute_bag_flag = True
-        if (
-            self.put_silph_scope_in_bag_bool and not self.silph_scope_bag_flag
-            and ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"]
-        ):
-            self.put_silph_scope_in_bag()
-            self.silph_scope_bag_flag = True
-        # if self.skip_safari_zone_bool and c in [15, 18, 19] and r in [4, 5, 7] and map_n == 7:
-        #     self.skip_safari_zone()
-        if self.put_bicycle_in_bag_bool and not self.bicycle_bag_flag:
-            self.put_bicycle_in_bag()
-            self.bicycle_bag_flag = True
-        if self.put_strength_in_bag_bool and not self.strength_bag_flag:
-            self.put_item_in_bag(0xC7) # hm04 strength
-            self.strength_bag_flag = True
-        if self.put_cut_in_bag_bool and not self.cut_bag_flag:
-            self.put_item_in_bag(0xC4) # hm01 cut
-            self.cut_bag_flag = True
-        if self.put_surf_in_bag_bool and not self.surf_bag_flag:
-            self.put_item_in_bag(0xC6) # hm03 surf
-            self.surf_bag_flag = True
+        # put items in bag
+        self.place_specific_items_in_bag()
             
         # set hm event flags if hm is in bag
         self.set_hm_event_flags()
+
+        # for testing beat silph co giovanni
+        self.set_bit(0xD838, 7, True)
 
         self.update_health()
         self.update_pokedex()
@@ -1121,7 +1017,7 @@ class RedGymEnv(Env):
             self.first = True
             new_reward = -self.total_reward * 0.5
 
-        if self.save_video and reset:
+        if self.save_video and reset and not self.only_record_stuck_state:
             self.full_frame_writer.close()
 
         return obs, new_reward, reset, False, info
@@ -1146,6 +1042,7 @@ class RedGymEnv(Env):
                 # set badge 2 (Misty - CascadeBadge) if not obtained or can't use Cut
                 if self.read_bit(0xD356, 0) == 0:
                     self.set_badge(2)
+                    self.flip_gym_leader_bits()
                 self.cut_if_next()
 
         if self.events.get_event("EVENT_GOT_HM03"):  # 0xD857, 0 SURF
@@ -1155,6 +1052,7 @@ class RedGymEnv(Env):
                 # set badge 5 (Koga - SoulBadge) if not obtained or can't use Surf
                 if self.read_bit(0xD356, 4) == 0:
                     self.set_badge(5)
+                    self.flip_gym_leader_bits()
                 self.surf_if_attempt(VALID_ACTIONS[action])
 
         if self.events.get_event("EVENT_GOT_HM04"):  # 0xD78E, 0 STRENGTH
@@ -1164,6 +1062,7 @@ class RedGymEnv(Env):
                 # set badge 4 (Erika - RainbowBadge) if not obtained or can't use Strength
                 if self.read_bit(0xD356, 3) == 0:
                     self.set_badge(4)
+                    self.flip_gym_leader_bits()
                 self.solve_missable_strength_puzzle()
                 self.solve_switch_strength_puzzle()
 
@@ -1210,22 +1109,6 @@ class RedGymEnv(Env):
             except KeyError as e:
                 logging.error(f"env_id: {self.env_id}: Symbol lookup failed for party member {i+1}: {e}")
                 continue  # Skip to the next party member
-            
-            
-        # for i in range(party_size):
-        #     # PRET 1-indexes
-        #     _, species_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
-        #     poke = self.pyboy.memory[species_addr]
-        #     # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/pokemon_constants.asm
-        #     if poke in pokemon_species_ids:
-        #         for slot in range(4):
-        #             if self.read_m(f"wPartyMon{i+1}Moves") not in {0xF, 0x13, 0x39, 0x46, 0x94}:
-        #                 _, move_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")
-        #                 _, pp_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}PP")
-        #                 self.pyboy.memory[move_addr + slot] = tmhm
-        #                 self.pyboy.memory[pp_addr + slot] = pp
-        #                 # fill up pp: 30/30
-        #                 break
     
     def cut_if_next(self):
         # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/tileset_constants.asm#L11C8-L11C11
@@ -1545,6 +1428,7 @@ class RedGymEnv(Env):
                 "reward": self.get_game_state_reward(),
                 "reward_sum": sum(self.get_game_state_reward().values()),
                 "event": self.progress_reward["event"],
+                "beat_articuno": self.events.get_event("EVENT_BEAT_ARTICUNO"),
                 "healr": self.total_heal_health,
             },
         }
@@ -1557,6 +1441,9 @@ class RedGymEnv(Env):
         self.full_frame_writer.add_image(self.video())  
     
     def start_video(self):
+        if self.only_record_stuck_state and not self.stuck_state_recording_started:
+            return
+        
         if self.full_frame_writer is not None:
             self.full_frame_writer.close()
         # if self.model_frame_writer is not None:
@@ -1655,6 +1542,16 @@ class RedGymEnv(Env):
         # add padding so zero will read '0b100000000' instead of '0b0'
         return bool(int(self.read_m(addr)) & (1 << bit))
 
+    def set_bit(self, address, bit, value=True):
+        """Set the value of a specific bit at the given address."""
+        current_value = self.pyboy.get_memory_value(address)
+        bit_mask = 1 << bit
+        if value:
+            new_value = current_value | bit_mask
+        else:
+            new_value = current_value & ~bit_mask
+        self.pyboy.set_memory_value(address, new_value)
+   
     def read_event_bits(self):
         _, addr = self.pyboy.symbol_lookup("wEventFlags")
         return self.pyboy.memory[addr : addr + EVENTS_FLAGS_LENGTH]
@@ -1944,25 +1841,26 @@ class RedGymEnv(Env):
         bag_start = 0xD31E
         bag_end = 0xD31E + 20 * 2  # Assuming a maximum of 20 items in the bag
         items = []
-
         # Read items into a list, skipping 0xFF slots
         for i in range(bag_start, bag_end, 2):
             item = self.pyboy.memory[i]
             quantity = self.pyboy.memory[i + 1]
             if item != 0xFF:
                 items.append((item, quantity))
-
         # Write items back to the bag, compacting them
         for idx, (item, quantity) in enumerate(items):
             self.pyboy.memory[bag_start + idx * 2] = item
             self.pyboy.memory[bag_start + idx * 2 + 1] = quantity
-
         # Clear the remaining slots in the bag
         next_slot = bag_start + len(items) * 2
         while next_slot < bag_end:
             self.pyboy.memory[next_slot] = 0xFF
             self.pyboy.memory[next_slot + 1] = 0
             next_slot += 2
+        # Update the count of items in the bag
+        self.pyboy.memory[self.pyboy.symbol_lookup("wNumBagItems")[1]] = len(items)
+            
+            
 
     # Marks hideout as completed and prevents an agent from entering rocket hideout
     def skip_rocket_hideout(self):
@@ -2094,10 +1992,38 @@ class RedGymEnv(Env):
         self.pyboy.memory[0xD31F + idx * 2] = 1  # Item quantity
         self.compact_bag()
     
+
+    def place_specific_items_in_bag(self):
+        if (self.put_poke_flute_in_bag_bool and ram_map_leanke.monitor_poke_tower_events(self.pyboy)["rescued_mr_fuji_1"]) or self.poke_flute_bag_flag:
+            self.put_item_in_bag(0x49) # poke flute
+        if (self.put_silph_scope_in_bag_bool and ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"]) or self.silph_scope_bag_flag:
+            self.put_item_in_bag(0x48) # silph scope
+        if self.put_bicycle_in_bag_bool or self.bicycle_bag_flag:
+            self.put_item_in_bag(0x06) # bicycle
+        if self.put_strength_in_bag_bool or self.strength_bag_flag:
+            self.put_item_in_bag(0xC7) # hm04 strength
+        if self.put_cut_in_bag_bool or self.cut_bag_flag:
+            self.put_item_in_bag(0xC4) # hm01 cut
+        if self.put_surf_in_bag_bool or self.surf_bag_flag:
+            self.put_item_in_bag(0xC6) # hm03 surf
         
+        if self.item_testing:
+            # Always place for testing
+            self.put_item_in_bag(0xC6) # hm03 surf
+            self.put_item_in_bag(0xC4) # hm01 cut
+            self.put_item_in_bag(0xC7) # hm04 strength
+            # self.put_item_in_bag(0x01) # master ball            
+
+            # put everything in bag
+            # self.put_poke_flute_in_bag()
+            self.put_item_in_bag(0x49) # poke flute        
+            # self.put_silph_scope_in_bag()
+            self.put_item_in_bag(0x48) # silph scope        
+            # self.put_bicycle_in_bag()    
+            self.put_item_in_bag(0x6) # bicycle
+            
     def put_item_in_bag(self, item_id):
-        # Fetch current items in the bag without lookup
-        
+        # Fetch current items in the bag without lookup        
         item_id = item_id
         current_items = self.api.items.get_bag_item_ids_no_lookup()
         for i in current_items:
@@ -2129,6 +2055,37 @@ class RedGymEnv(Env):
                 current_value = self.pyboy.memory[address]
                 self.pyboy.memory[address] = current_value | (1 << bit)
 
+    def set_event(self, event_name, value=True):
+        event_flag_address = EVENT_FLAGS_START + getattr(EventFlagsBits, event_name).offset
+        current_value = self.pyboy.get_memory_value(event_flag_address)
+        bit_mask = 1 << getattr(EventFlagsBits, event_name).bit
+        
+        if value:
+            new_value = current_value | bit_mask
+        else:
+            new_value = current_value & ~bit_mask
+
+        self.pyboy.set_memory_value(event_flag_address, new_value)    
+    
+    def flip_gym_leader_bits(self):
+        badge_bits_dict = self.get_badges_bits()
+        if badge_bits_dict[1]:
+            self.set_event("EVENT_BEAT_BROCK")
+        if badge_bits_dict[2]:
+            self.set_event("EVENT_BEAT_MISTY")
+        if badge_bits_dict[3]:
+            self.set_event("EVENT_BEAT_LT_SURGE")
+        if badge_bits_dict[4]:
+            self.set_event("EVENT_BEAT_ERIKA")
+        if badge_bits_dict[5]:
+            self.set_event("EVENT_BEAT_KOGA")
+        if badge_bits_dict[6]:
+            self.set_event("EVENT_BEAT_SABRINA")
+        if badge_bits_dict[7]:
+            self.set_event("EVENT_BEAT_BLAINE")
+        if badge_bits_dict[8]:
+            self.set_event("EVENT_BEAT_VIRIDIAN_GYM_GIOVANNI")
+    
     def set_badge(self, badge_number):
         badge_address = 0xD356
         badge_value = self.pyboy.memory[badge_address]
