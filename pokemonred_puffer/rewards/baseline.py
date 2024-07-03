@@ -73,7 +73,7 @@ class BaselineRewardEnv(RedGymEnv):
     def update_max_event_rew(self):
         cur_rew = self.get_all_events_reward()
         self.max_event_rew = max(cur_rew, self.max_event_rew)
-        return self.max_event_rew * self.calculate_event_scaling()
+        return self.max_event_rew # * self.calculate_event_scaling()
 
     def get_all_events_reward(self):
         # adds up all event flags, exclude museum ticket

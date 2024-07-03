@@ -74,8 +74,9 @@ class RedGymEnv(Env):
 
     def __init__(self, env_config: pufferlib.namespace):
         self.video_dir = Path(env_config.video_dir)
-        self.session_path = Path(env_config.session_path)
-        self.video_path = self.video_dir / self.session_path
+        # self.session_path = Path(env_config.session_path)
+        # self.video_path = self.video_dir / self.session_path
+        self.save_video = env_config.save_video
         self.save_final_state = env_config.save_final_state
         self.print_rewards = env_config.print_rewards
         self.headless = env_config.headless
@@ -85,7 +86,6 @@ class RedGymEnv(Env):
         self.init_state_path = self.state_dir / f"{self.init_state_name}.state"
         self.action_freq = env_config.action_freq
         self.max_steps = env_config.max_steps
-        self.save_video = env_config.save_video
         self.fast_video = env_config.fast_video
         self.perfect_ivs = env_config.perfect_ivs
         self.reduce_res = env_config.reduce_res
@@ -114,6 +114,7 @@ class RedGymEnv(Env):
         self.save_all_env_states_bool = env_config.save_all_env_states_bool
         self.save_state = env_config.save_state
         self.use_fixed_x = env_config.fixed_x
+        self.use_global_map = env_config.use_global_map
         self.skip_rocket_hideout_bool = env_config.skip_rocket_hideout_bool
         self.skip_silph_co_bool = env_config.skip_silph_co_bool
         self.skip_safari_zone_bool = env_config.skip_safari_zone_bool
@@ -126,6 +127,21 @@ class RedGymEnv(Env):
         self.auto_remove_all_nonuseful_items = env_config.auto_remove_all_nonuseful_items
         self.action_space = ACTION_SPACE
         self.levels = 0
+        self.reset_count = 0
+        
+        # reinit
+        self.seen_coords = {}
+        self.seen_map_ids = np.zeros(256)
+        self.seen_npcs = {}
+        self.cut_coords = {}
+        self.cut_tiles = {}
+        self.seen_start_menu = 0
+        self.seen_pokemon_menu = 0
+        self.seen_stats_menu = 0
+        self.seen_bag_menu = 0
+        self.seen_action_bag_menu = 0
+
+
         self.state_already_saved = False
         self.rocket_hideout_maps = [135, 199, 200, 201, 202, 203]  # including game corner
         self.poketower_maps = [142, 143, 144, 145, 146, 147, 148]
@@ -189,11 +205,16 @@ class RedGymEnv(Env):
 
         # NOTE: Used for saving video
         if env_config.save_video:
-            self.instance_id = str(uuid.uuid4())[:8]
+            self.instance_id = f'video_{self.env_id}_reset_count_{self.reset_count}' # str(uuid.uuid4())[:8]
             self.video_dir.mkdir(exist_ok=True)
             self.full_frame_writer = None
             self.model_frame_writer = None
             self.map_frame_writer = None
+            self.stuck_video_started = False
+            self.max_video_frames = 10000  # Maximum number of frames per video
+            self.frame_count = 0
+            
+        self.stuck_threshold = 100 
         self.reset_count = 0
         self.all_runs = []
         self.global_step_count = 0
@@ -211,9 +232,11 @@ class RedGymEnv(Env):
         self.strength_bag_flag = 0
         self.surf_bag_flag = 0
         self.bicycle_bag_flag = 0
+
         self.silph_co_penalty = 0  # a counter that counts times env tries to go into silph co
         self.index_count = 0
         self.stuck_count = 0
+        self.last_coords = (0, 0, 0)
 
         # Set this in SOME subclasses
         self.metadata = {"render.modes": []}
@@ -384,26 +407,37 @@ class RedGymEnv(Env):
         self.state_already_saved = True
 
     def load_all_states(self):
-        # Define the directory where the saved state is stored
+        # Define the default directory where the saved state is stored
+        default_saved_state_dir = self.general_saved_state_dir
+        
+        # Determine the directory to use
         saved_state_dir = (
             self.load_states_on_start_dir
             if self.load_states_on_start_dir
             else self.save_each_env_state_dir
+            if self.save_each_env_state_dir
+            else default_saved_state_dir
         )
-        # print(f"saved_state_dir: {saved_state_dir}")
+        
+        # Print the directory being used
+        print(f"Using saved state directory: {saved_state_dir}")
+        logging.info(f"Using saved state directory: {saved_state_dir}")
+        
+        # Ensure the directory exists
         if not os.path.exists(saved_state_dir):
             os.makedirs(saved_state_dir, exist_ok=True)
+        
         # Try to load the state for the current env_id
         saved_state_file = os.path.join(saved_state_dir, f"state_{self.env_id}.state")
-        # Check if the saved state file exists
+        
         try:
             if os.path.exists(saved_state_file):
                 # Load the game state from the file
                 with open(saved_state_file, "rb") as file:
                     self.pyboy.load_state(file)
                 # Print confirmation message
-                print(f"State loaded for env_id: {self.env_id} from file: {saved_state_file} in {saved_state_dir}")
-                logging.info(f"State loaded for env_id: {self.env_id} from file: {saved_state_file} in {saved_state_dir}")
+                print(f"State loaded for env_id: {self.env_id} from file: {saved_state_file}")
+                logging.info(f"State loaded for env_id: {self.env_id} from file: {saved_state_file}")
             else:
                 # Load a random state if the state for the current env_id does not exist
                 state_files = [f for f in os.listdir(saved_state_dir) if f.endswith(".state")]
@@ -414,23 +448,26 @@ class RedGymEnv(Env):
                     with open(random_state_file, "rb") as file:
                         self.pyboy.load_state(file)
                     # Print confirmation message
-                    print(
-                        f"No state found for env_id: {self.env_id} in {saved_state_dir}. Loaded random state: {random_state_file}"
-                    )
-                    logging.info(f'No state found for env_id: {self.env_id} in {saved_state_dir}. Loaded random state: {random_state_file}')
+                    print(f"No state found for env_id: {self.env_id}. Loaded random state: {random_state_file}")
+                    logging.info(f"No state found for env_id: {self.env_id}. Loaded random state: {random_state_file}")
                 else:
                     print(f"No saved states found in {saved_state_dir}.")
-                    logging.info(f'No saved states found in {saved_state_dir}.')
+                    logging.info(f"No saved states found in {saved_state_dir}.")
         except Exception as e:
             print(f"env_id: {self.env_id}: Error loading state: {e}")
             logging.error(f"env_id: {self.env_id}: Error loading state: {e}")
 
+
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
+        # if self.save_video:
+        #     self.start_video()
+            
         self.explore_map_dim = 384
         options = options or {}
         if self.first or options.get("state", None) is not None:
             self.recent_screens = deque()
             self.recent_actions = deque()
+            self.init_mem()
             self.reset_bag_item_rewards()
             self.seen_hidden_objs = {}
             self.seen_signs = {}
@@ -648,47 +685,135 @@ class RedGymEnv(Env):
     #         mode="constant",
     #     )
 
+    # def render(self):
+    #     game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
+    #     if self.reduce_res:
+    #         game_pixels_render = game_pixels_render[::2, ::2, :]
+    #     player_x, player_y, map_n = self.get_game_coords()
+    #     self.last_coords = (player_x, player_y, map_n)
+    #     visited_mask = np.zeros_like(game_pixels_render)
+    #     scale = 2 if self.reduce_res else 1
+    #     if self.read_m(0xD057) == 0:
+    #         # for y in range(-72 // 16, 72 // 16):
+    #         #     for x in range(-80 // 16, 80 // 16):
+    #         #         visited_mask[
+    #         #             (16 * y + 76) // scale : (16 * y + 16 + 76) // scale,
+    #         #             (16 * x + 80) // scale : (16 * x + 16 + 80) // scale,
+    #         #             :,
+    #         #         ] = int(
+    #         #             self.seen_coords.get(
+    #         #                 (
+    #         #                     player_x + x + 1,
+    #         #                     player_y + y + 1,
+    #         #                     map_n,
+    #         #                 ),
+    #         #                 0,
+    #         #             )
+    #         #             * 255
+    #         #         )
+    #         gr, gc = local_to_global(player_y, player_x, map_n)
+    #         visited_mask = (
+    #             255
+    #             * np.repeat(
+    #                 np.repeat(self.explore_map[gr - 4 : gr + 6, gc - 4 : gc + 6], 16 // scale, 0),
+    #                 16 // scale,
+    #                 -1,
+    #             )
+    #         ).astype(np.uint8)[6 // scale : -10 // scale, :]
+    #         visited_mask = np.expand_dims(visited_mask, -1)
+
+    #     if self.use_fixed_x:
+    #         fixed_window = self.fixed_x(
+    #             game_pixels_render, player_y, player_x, self.observation_space["fixed_x"].shape
+    #         )
+
+    #     if self.two_bit:
+    #         game_pixels_render = (
+    #             (
+    #                 np.digitize(
+    #                     game_pixels_render.reshape((-1, 4)), PIXEL_VALUES, right=True
+    #                 ).astype(np.uint8)
+    #                 << np.array([6, 4, 2, 0], dtype=np.uint8)
+    #             )
+    #             .sum(axis=1, dtype=np.uint8)
+    #             .reshape((-1, game_pixels_render.shape[1] // 4, 1))
+    #         )
+    #         visited_mask = (
+    #             (
+    #                 np.digitize(
+    #                     visited_mask.reshape((-1, 4)),
+    #                     np.array([0, 64, 128, 255], dtype=np.uint8),
+    #                     right=True,
+    #                 ).astype(np.uint8)
+    #                 << np.array([6, 4, 2, 0], dtype=np.uint8)
+    #             )
+    #             .sum(axis=1, dtype=np.uint8)
+    #             .reshape(game_pixels_render.shape)
+    #             .astype(np.uint8)
+    #         )
+
+    #     if self.use_fixed_x:
+    #         return {
+    #             "screen": game_pixels_render,
+    #             "visited_mask": visited_mask,
+    #             "fixed_x": fixed_window,
+    #         }
+    #     else:
+    #         return {
+    #             "screen": game_pixels_render,
+    #             "visited_mask": visited_mask,
+    #         }
     def render(self):
         game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
+
         if self.reduce_res:
             game_pixels_render = game_pixels_render[::2, ::2, :]
+
         player_x, player_y, map_n = self.get_game_coords()
-        self.last_coords = (player_x, player_y, map_n)
+        # self.last_coords = (player_x, player_y, map_n)
         visited_mask = np.zeros_like(game_pixels_render)
         scale = 2 if self.reduce_res else 1
-        if self.read_m(0xD057) == 0:
-            # for y in range(-72 // 16, 72 // 16):
-            #     for x in range(-80 // 16, 80 // 16):
-            #         visited_mask[
-            #             (16 * y + 76) // scale : (16 * y + 16 + 76) // scale,
-            #             (16 * x + 80) // scale : (16 * x + 16 + 80) // scale,
-            #             :,
-            #         ] = int(
-            #             self.seen_coords.get(
-            #                 (
-            #                     player_x + x + 1,
-            #                     player_y + y + 1,
-            #                     map_n,
-            #                 ),
-            #                 0,
-            #             )
-            #             * 255
-            #         )
-            gr, gc = local_to_global(player_y, player_x, map_n)
-            visited_mask = (
-                255
-                * np.repeat(
-                    np.repeat(self.explore_map[gr - 4 : gr + 6, gc - 4 : gc + 6], 16 // scale, 0),
-                    16 // scale,
-                    -1,
-                )
-            ).astype(np.uint8)[6 // scale : -10 // scale, :]
-            visited_mask = np.expand_dims(visited_mask, -1)
 
-        if self.use_fixed_x:
-            fixed_window = self.fixed_x(
-                game_pixels_render, player_y, player_x, self.observation_space["fixed_x"].shape
-            )
+        if self.read_m(0xD057) == 0:
+            gr, gc = local_to_global(player_y, player_x, map_n)
+
+            # Validate coordinates
+            if gr == 0 and gc == 0:
+                logging.warning(f"Invalid global coordinates for map_id {map_n}. Skipping visited_mask update.")
+                visited_mask = np.zeros_like(game_pixels_render)
+            else:
+                try:
+                    # Ensure the indices are within bounds before slicing
+                    if 0 <= gr - 4 and gr + 6 <= self.explore_map.shape[0] and 0 <= gc - 4 and gc + 6 <= self.explore_map.shape[1]:
+                        sliced_explore_map = self.explore_map[gr - 4 : gr + 6, gc - 4 : gc + 6]
+                        if sliced_explore_map.size > 0:  # Ensure the array is not empty
+                            visited_mask = (
+                                255
+                                * np.repeat(
+                                    np.repeat(sliced_explore_map, 16 // scale, 0),
+                                    16 // scale,
+                                    -1,
+                                )
+                            ).astype(np.uint8)[6 // scale : -10 // scale, :]
+                            visited_mask = np.expand_dims(visited_mask, -1)
+                        else:
+                            logging.warning(f"env_id: {self.env_id}: Sliced explore map is empty for global coordinates: ({gr}, {gc})")
+                            visited_mask = np.zeros_like(game_pixels_render)
+                    else:
+                        logging.warning(f"env_id: {self.env_id}: Coordinates out of bounds! global: ({gr}, {gc}) game: ({player_y}, {player_x}, {map_n})")
+                        visited_mask = np.zeros_like(game_pixels_render)
+                except IndexError as e:
+                    logging.error(f"env_id: {self.env_id}: Index error while creating visited_mask: {e}")
+                    visited_mask = np.zeros_like(game_pixels_render)
+                except ValueError as e:
+                    logging.error(f"env_id: {self.env_id}: Value error while creating visited_mask: {e}")
+                    visited_mask = np.zeros_like(game_pixels_render)
+
+        if self.use_global_map:
+            global_map = np.expand_dims(
+                255 * self.explore_map,
+                axis=-1,
+            ).astype(np.uint8)
 
         if self.two_bit:
             game_pixels_render = (
@@ -714,19 +839,24 @@ class RedGymEnv(Env):
                 .reshape(game_pixels_render.shape)
                 .astype(np.uint8)
             )
+            if self.use_global_map:
+                global_map = (
+                    (
+                        np.digitize(
+                            global_map.reshape((-1, 4)),
+                            np.array([0, 64, 128, 255], dtype=np.uint8),
+                            right=True,
+                        ).astype(np.uint8)
+                        << np.array([6, 4, 2, 0], dtype=np.uint8)
+                    )
+                    .sum(axis=1, dtype=np.uint8)
+                    .reshape(self.global_map_shape)
+                )
 
-        if self.use_fixed_x:
-            return {
-                "screen": game_pixels_render,
-                "visited_mask": visited_mask,
-                "fixed_x": fixed_window,
-            }
-        else:
-            return {
-                "screen": game_pixels_render,
-                "visited_mask": visited_mask,
-            }
-
+        return {
+            "screen": game_pixels_render,
+            "visited_mask": visited_mask,
+        } | ({"global_map": global_map} if self.use_global_map else {})
 
     def _get_obs(self):
         # player_x, player_y, map_n = self.get_game_coords()
@@ -798,21 +928,7 @@ class RedGymEnv(Env):
             new_bag_items = [
                 (item, quantity)
                 for item, quantity in zip(bag_items[::2], bag_items[1::2])
-                if (0x0 < item < ItemsThatGuy.HM_01.value and (item - 1) in KEY_ITEM_IDS)
-                or item
-                in {
-                    ItemsThatGuy[name]
-                    for name in [
-                        "LEMONADE",
-                        "SODA_POP",
-                        "FRESH_WATER",
-                        "HM_01",
-                        "HM_02",
-                        "HM_03",
-                        "HM_04",
-                        "HM_05",
-                    ]
-                }
+                if Items(item) in KEY_ITEMS | REQUIRED_ITEMS | USEFUL_ITEMS | HM_ITEMS
             ]
             # Write the new count back to memory
             self.pyboy.memory[wNumBagItems] = len(new_bag_items)
@@ -873,11 +989,14 @@ class RedGymEnv(Env):
             self.has_bicycle_in_bag_reward = 20
 
     def step(self, action):
-        self.stuck_detector()
-        self.unstucker()
-        
+        # c, r, map_n = self.get_game_coords()
+        # if not self.read_m(0xD057) == 0:
+        #     self.stuck_detector(c, r, map_n)
+        # if self.unstucker(c, r, map_n):
+        #     logging.info(f'env_id: {self.env_id} was unstuck.')
+            
         # Deal with Cycling Route gate problems
-        c, r, map_n = self.get_game_coords()
+
         # if self.last_map != map_n:
         #     self.new_map = True
         # else:
@@ -889,9 +1008,12 @@ class RedGymEnv(Env):
         #     new_reward = -self.total_reward * 0.5
 
         # self.last_map = map_n
-
-        if self.save_video and map_n in [84, 86]:  # self.step_count == 0:
-            self.start_video()
+            
+        if self.save_video and self.stuck_video_started:
+            self.add_v_frame()
+            
+        # if self.stuck_video_started:
+        #     self.add_video_frame()
 
         _, wMapPalOffset = self.pyboy.symbol_lookup("wMapPalOffset")
         if self.auto_flash and self.pyboy.memory[wMapPalOffset] == 6:
@@ -997,6 +1119,9 @@ class RedGymEnv(Env):
             self.first = True
             new_reward = -self.total_reward * 0.5
 
+        # if self.save_video and reset:
+        #     self.full_frame_writer.close()
+
         return obs, new_reward, reset, False, info
         
     def run_action_on_emulator(self, action):
@@ -1067,19 +1192,38 @@ class RedGymEnv(Env):
         # find bulba and replace tackle (first skill) with cut
         party_size = self.read_m("wPartyCount")
         for i in range(party_size):
-            # PRET 1-indexes
-            _, species_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
-            poke = self.pyboy.memory[species_addr]
-            # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/pokemon_constants.asm
-            if poke in pokemon_species_ids:
-                for slot in range(4):
-                    if self.read_m(f"wPartyMon{i+1}Moves") not in {0xF, 0x13, 0x39, 0x46, 0x94}:
-                        _, move_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")
-                        _, pp_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}PP")
-                        self.pyboy.memory[move_addr + slot] = tmhm
-                        self.pyboy.memory[pp_addr + slot] = pp
-                        # fill up pp: 30/30
-                        break
+            try:
+                # PRET 1-indexes
+                _, species_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
+                poke = self.pyboy.memory[species_addr]
+                # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/pokemon_constants.asm
+                if poke in pokemon_species_ids:
+                    for slot in range(4):
+                        move_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")[1] + slot
+                        pp_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}PP")[1] + slot
+                        if self.pyboy.memory[move_addr] not in {0xF, 0x13, 0x39, 0x46, 0x94}:
+                            self.pyboy.memory[move_addr] = tmhm
+                            self.pyboy.memory[pp_addr] = pp
+                            break
+            except KeyError as e:
+                logging.error(f"env_id: {self.env_id}: Symbol lookup failed for party member {i+1}: {e}")
+                continue  # Skip to the next party member
+            
+            
+        # for i in range(party_size):
+        #     # PRET 1-indexes
+        #     _, species_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
+        #     poke = self.pyboy.memory[species_addr]
+        #     # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/pokemon_constants.asm
+        #     if poke in pokemon_species_ids:
+        #         for slot in range(4):
+        #             if self.read_m(f"wPartyMon{i+1}Moves") not in {0xF, 0x13, 0x39, 0x46, 0x94}:
+        #                 _, move_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")
+        #                 _, pp_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}PP")
+        #                 self.pyboy.memory[move_addr + slot] = tmhm
+        #                 self.pyboy.memory[pp_addr + slot] = pp
+        #                 # fill up pp: 30/30
+        #                 break
     
     def cut_if_next(self):
         # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/tileset_constants.asm#L11C8-L11C11
@@ -1269,6 +1413,7 @@ class RedGymEnv(Env):
         gym_6_events = ram_map_leanke.monitor_gym6_events(self.pyboy)
         gym_7_events = ram_map_leanke.monitor_gym7_events(self.pyboy)
         gym_8_events = ram_map_leanke.monitor_gym8_events(self.pyboy)
+        badge_bits_dict = self.get_badges_bits()
 
         return {
             "stats/step": self.global_step_count,
@@ -1302,15 +1447,15 @@ class RedGymEnv(Env):
                 "opponent_level": self.max_opponent_level,
                 },
                 "badges": {
-                "badge": self.get_badges(),
-                "badge_1": int(self.get_badges() >= 1),
-                "badge_2": int(self.get_badges() >= 2),
-                "badge_3": int(self.get_badges() >= 3),
-                "badge_4": int(self.get_badges() >= 4),
-                "badge_5": int(self.get_badges() >= 5),
-                "badge_6": int(self.get_badges() >= 6),
-                "badge_7": int(self.get_badges() >= 7),
-                "badge_8": int(self.get_badges() >= 8),
+                "badge_count": float(self.get_badges()),
+                "badge_1": badge_bits_dict[1],
+                "badge_2": badge_bits_dict[2],
+                "badge_3": badge_bits_dict[3],
+                "badge_4": badge_bits_dict[4],
+                "badge_5": badge_bits_dict[5],
+                "badge_6": badge_bits_dict[6],
+                "badge_7": badge_bits_dict[7],
+                "badge_8": badge_bits_dict[8],
                 },
                 "hms": {
                 "taught_cut": self.taught_cut, # int(self.check_if_party_has_hm(0xF)),
@@ -1402,41 +1547,66 @@ class RedGymEnv(Env):
             },
         }
 
+    def video(self):
+        video = self.screen.ndarray[:, :, 1]
+        return video
+    
+    def add_v_frame(self):
+        self.full_frame_writer.add_image(self.video())  
+    
     def start_video(self):
         if self.full_frame_writer is not None:
             self.full_frame_writer.close()
-        if self.model_frame_writer is not None:
-            self.model_frame_writer.close()
-        if self.map_frame_writer is not None:
-            self.map_frame_writer.close()
+        # if self.model_frame_writer is not None:
+        #     self.model_frame_writer.close()
+        # if self.map_frame_writer is not None:
+        #     self.map_frame_writer.close()
 
-        base_dir = self.s_path / Path("rollouts")
+        base_dir = self.video_dir / Path("rollouts")
         base_dir.mkdir(exist_ok=True)
-        full_name = Path(f"full_reset_{self.reset_count}_id{self.instance_id}").with_suffix(".mp4")
-        model_name = Path(f"model_reset_{self.reset_count}_id{self.instance_id}").with_suffix(
-            ".mp4"
-        )
+        c, r, map_n = self.get_game_coords()
+        full_name = Path(f"video_env_id_{self.env_id}_({c}_{r}_{map_n})_stuck_count_{self.stuck_count}_reset_{self.reset_count}").with_suffix(".mp4")
+        # model_name = Path(f"model_reset_id{self.instance_id}").with_suffix(".mp4")
+        # map_name = Path(f"map_reset_id{self.instance_id}").with_suffix(".mp4")
+
         self.full_frame_writer = media.VideoWriter(
             base_dir / full_name, (144, 160), fps=60, input_format="gray"
         )
         self.full_frame_writer.__enter__()
-        self.model_frame_writer = media.VideoWriter(
-            base_dir / model_name, self.screen_output_shape[:2], fps=60, input_format="gray"
-        )
-        self.model_frame_writer.__enter__()
-        map_name = Path(f"map_reset_{self.reset_count}_id{self.instance_id}").with_suffix(".mp4")
-        self.map_frame_writer = media.VideoWriter(
-            base_dir / map_name,
-            (self.coords_pad * 4, self.coords_pad * 4),
-            fps=60,
-            input_format="gray",
-        )
-        self.map_frame_writer.__enter__()
+        # self.model_frame_writer = media.VideoWriter(
+        #     base_dir / model_name, (self.screen_output_shape[0], self.screen_output_shape[1]), fps=60, input_format="gray"
+        # )
+        # self.model_frame_writer.__enter__()
+        # self.map_frame_writer = media.VideoWriter(
+        #     base_dir / map_name, (self.coords_pad * 4, self.coords_pad * 4), fps=60, input_format="gray"
+        # )
+        # self.map_frame_writer.__enter__()
 
     def add_video_frame(self):
-        self.full_frame_writer.add_image(self.render()[:, :, 0])
-        self.model_frame_writer.add_image(self.render()[:, :, 0])
+        full_frame = self.screen.ndarray[:, :, 1]
+        # model_frame = self.screen.ndarray[:, :, 1]
 
+        if self.full_frame_writer:
+            self.full_frame_writer.add_image(full_frame)
+        # if self.model_frame_writer:
+        #     model_frame_resized = np.resize(model_frame, (144, 160))
+        #     self.model_frame_writer.add_image(model_frame_resized)
+        # if self.map_frame_writer:
+        #     map_frame = self.generate_map_frame()
+        #     map_frame_2d = np.squeeze(map_frame)  # Ensure the map frame is 2D
+        #     self.map_frame_writer.add_image(map_frame_2d)
+        self.frame_count += 1
+
+        if self.frame_count >= self.max_video_frames:
+            self.stuck_video_started = False
+            self.full_frame_writer.close()
+            # self.model_frame_writer.close()
+            # self.map_frame_writer.close()
+
+    def generate_map_frame(self):
+        game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
+        return game_pixels_render
+    
     def get_game_coords(self):
         return (self.read_m(0xD362), self.read_m(0xD361), self.read_m(0xD35E))
 
@@ -1489,6 +1659,15 @@ class RedGymEnv(Env):
 
     def get_badges(self):
         return self.read_short("wObtainedBadges").bit_count()
+
+    def get_badges_bits(self):
+        badge_bits = []
+        badge_bits_dict = {}
+        for i in range(8):
+            badge_bits.append(self.read_bit(0xD356, i))
+        for badge, state in enumerate(badge_bits):
+            badge_bits_dict[badge+1] = state
+        return badge_bits_dict
 
     def read_party(self):
         _, addr = self.pyboy.symbol_lookup("wPartySpecies")
@@ -1694,29 +1873,43 @@ class RedGymEnv(Env):
 
     def get_hm_count(self) -> int:
         return len(HM_ITEM_IDS.intersection(self.get_items_in_bag()))
-
-    def stuck_detector(self):
-        try:            
-            (c, r, map_n) = self.get_game_coords()
+    
+    def stuck_detector(self, c, r, map_n):
+        try:
             if (c, r, map_n) == self.last_coords:
                 self.stuck_count += 1
-            else:
+                if self.stuck_count > self.stuck_threshold and not self.stuck_video_started:
+                    logging.info(f'env_id: {self.env_id} is stuck at (c, r, map_n) {(c, r, map_n)}. stuck_count: {self.stuck_count}. Starting video recording...')
+                    self.start_video()
+                    self.stuck_video_started = True
+                    self.frame_count = 0
+            elif (c, r, map_n) != self.last_coords:
                 self.stuck_count = 0
+                self.last_coords = (c, r, map_n)
+                self.full_frame_writer.close()
+            # else:
+            #     self.stuck_count = 0
+            #     self.last_coords = (c, r, map_n)
+            if self.stuck_video_started and self.frame_count >= self.max_video_frames:
+                self.full_frame_writer.close()
+                # self.model_frame_writer.close()
+                # self.map_frame_writer.close()
+                self.stuck_video_started = False
         except Exception as e:
-            logging.info(f'env_id: {self.env_id} had exception in stuck_detector. error={e}')
-            pass
-            
-    def unstucker(self):
-        if self.stuck_count > 1000:
+            logging.exception(f'env_id: {self.env_id} had exception in stuck_detector. error={e}')
+
+    def unstucker(self, c, r, map_n):
+        if self.stuck_count > self.stuck_threshold:
+            logging.info(f'env_id: {self.env_id} is stuck at (c, r, map_n) {(c, r, map_n)}. stuck_count: {self.stuck_count}. Attempting to unstuck...')
             try:
                 self.stuck_count = 0
-                self.load_all_states()
-                self.reset_count += 1
-                self.reset()
+                # self.load_all_states()
+                # self.reset_count += 1
+                # self.reset()
             except Exception as e:
-                logging.info(f'env_id: {self.env_id} had exception in unstucker. error={e}')
-                pass
+                logging.exception(f'env_id: {self.env_id} had exception in unstucker. error={e}')
             return True
+        return False
 
     def get_levels_reward(self):
         # Level reward
@@ -2124,94 +2317,92 @@ class RedGymEnv(Env):
         ):
             return
 
-        in_overworld = self.read_m("wCurMapTileset") == Tilesets.OVERWORLD.value
-        in_plateau = self.read_m("wCurMapTileset") == Tilesets.PLATEAU.value
-        in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
-        print(f'current map tileset: {self.read_m("wCurMapTileset")}')
         # c, r, map_n
-        surf_spots_in_cavern = [(23, 5, 162), (7, 11, 162), (7, 3, 162), (15, 7, 161), (23, 9, 161)]
-        if in_overworld or in_plateau or (in_cavern and self.get_game_coords() in surf_spots_in_cavern):
-            _, wTileMap = self.pyboy.symbol_lookup("wTileMap")
-            print(f'wTileMap={wTileMap}')
-            tileMap = self.pyboy.memory[wTileMap : wTileMap + 20 * 18]
-            tileMap = np.array(tileMap, dtype=np.uint8)
-            tileMap = np.reshape(tileMap, (18, 20))
-            y, x = 8, 8
-            # This could be made a little faster by only checking the
-            # direction that matters, but I decided to copy pasta the cut routine
-            up, down, left, right = (
-                tileMap[y - 2 : y, x : x + 2],  # up
-                tileMap[y + 2 : y + 4, x : x + 2],  # down
-                tileMap[y : y + 2, x - 2 : x],  # left
-                tileMap[y : y + 2, x + 2 : x + 4],  # right
-            )
+        surf_spots_in_cavern = {(23, 5, 162), (7, 11, 162), (7, 3, 162), (15, 7, 161), (23, 9, 161)}
+        current_tileset = self.read_m("wCurMapTileset")
+        in_overworld = current_tileset == Tilesets.OVERWORLD.value
+        in_plateau = current_tileset == Tilesets.PLATEAU.value
+        in_cavern = current_tileset == Tilesets.CAVERN.value
 
-            # down, up, left, right
-            direction = self.read_m("wSpritePlayerStateData1FacingDirection")
+        if not (in_overworld or in_plateau or (in_cavern and self.get_game_coords() in surf_spots_in_cavern)):
+            return
 
-            if not (
-                (direction == 0x4 and action == WindowEvent.PRESS_ARROW_UP and 0x14 in up)
-                or (direction == 0x0 and action == WindowEvent.PRESS_ARROW_DOWN and 0x14 in down)
-                or (direction == 0x8 and action == WindowEvent.PRESS_ARROW_LEFT and 0x14 in left)
-                or (direction == 0xC and action == WindowEvent.PRESS_ARROW_RIGHT and 0x14 in right)
-            ):
+        _, wTileMap = self.pyboy.symbol_lookup("wTileMap")
+        tileMap = self.pyboy.memory[wTileMap : wTileMap + 20 * 18]
+        tileMap = np.reshape(np.array(tileMap, dtype=np.uint8), (18, 20))
+        y, x = 8, 8
+        direction = self.read_m("wSpritePlayerStateData1FacingDirection")
+        
+        if direction == 0x4 and action == WindowEvent.PRESS_ARROW_UP:
+            if 0x14 not in tileMap[y - 2 : y, x : x + 2]:
                 return
+        elif direction == 0x0 and action == WindowEvent.PRESS_ARROW_DOWN:
+            if 0x14 not in tileMap[y + 2 : y + 4, x : x + 2]:
+                return
+        elif direction == 0x8 and action == WindowEvent.PRESS_ARROW_LEFT:
+            if 0x14 not in tileMap[y : y + 2, x - 2 : x]:
+                return
+        elif direction == 0xC and action == WindowEvent.PRESS_ARROW_RIGHT:
+            if 0x14 not in tileMap[y : y + 2, x + 2 : x + 4]:
+                return
+        else:
+            return
 
-            # open start menu
-            self.pyboy.send_input(WindowEvent.PRESS_BUTTON_START)
-            self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START, delay=8)
+        # open start menu
+        self.pyboy.send_input(WindowEvent.PRESS_BUTTON_START)
+        self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START, delay=8)
+        self.pyboy.tick(self.action_freq, render=True)
+        # scroll to pokemon
+        # 1 is the item index for pokemon
+        for _ in range(24):
+            if self.pyboy.memory[self.pyboy.symbol_lookup("wCurrentMenuItem")[1]] == 1:
+                break
+            self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
+            self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
             self.pyboy.tick(self.action_freq, render=True)
-            # scroll to pokemon
-            # 1 is the item index for pokemon
-            for _ in range(24):
-                if self.pyboy.memory[self.pyboy.symbol_lookup("wCurrentMenuItem")[1]] == 1:
-                    break
-                self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
-                self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                self.pyboy.tick(self.action_freq, render=True)
-            self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
-            self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
+        self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
+        self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
+        self.pyboy.tick(self.action_freq, render=True)
+
+        # find pokemon with surf
+        # We run this over all pokemon so we dont end up in an infinite for loop
+        for _ in range(7):
+            self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
+            self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
+            self.pyboy.tick(self.action_freq, render=True)
+            party_mon = self.pyboy.memory[self.pyboy.symbol_lookup("wCurrentMenuItem")[1]]
+            _, addr = self.pyboy.symbol_lookup(f"wPartyMon{party_mon%6+1}Moves")
+            if 0x39 in self.pyboy.memory[addr : addr + 4]:
+                break
+
+        # Enter submenu
+        self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
+        self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
+        self.pyboy.tick(4 * self.action_freq, render=True)
+
+        # Scroll until the field move is found
+        _, wFieldMoves = self.pyboy.symbol_lookup("wFieldMoves")
+        field_moves = self.pyboy.memory[wFieldMoves : wFieldMoves + 4]
+
+        for _ in range(10):
+            current_item = self.read_m("wCurrentMenuItem")
+            if current_item < 4 and field_moves[current_item] in (
+                FieldMoves.SURF.value,
+                FieldMoves.SURF_2.value,
+            ):
+                break
+            self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
+            self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
             self.pyboy.tick(self.action_freq, render=True)
 
-            # find pokemon with surf
-            # We run this over all pokemon so we dont end up in an infinite for loop
-            for _ in range(7):
-                self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
-                self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                self.pyboy.tick(self.action_freq, render=True)
-                party_mon = self.pyboy.memory[self.pyboy.symbol_lookup("wCurrentMenuItem")[1]]
-                _, addr = self.pyboy.symbol_lookup(f"wPartyMon{party_mon%6+1}Moves")
-                if 0x39 in self.pyboy.memory[addr : addr + 4]:
-                    break
-
-            # Enter submenu
+        # press a bunch of times
+        for _ in range(5):
             self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
             self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
             self.pyboy.tick(4 * self.action_freq, render=True)
-
-            # Scroll until the field move is found
-            _, wFieldMoves = self.pyboy.symbol_lookup("wFieldMoves")
-            field_moves = self.pyboy.memory[wFieldMoves : wFieldMoves + 4]
-
-            for _ in range(10):
-                current_item = self.read_m("wCurrentMenuItem")
-                if current_item < 4 and field_moves[current_item] in (
-                    FieldMoves.SURF.value,
-                    FieldMoves.SURF_2.value,
-                ):
-                    break
-                self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
-                self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                self.pyboy.tick(self.action_freq, render=True)
-
-            # press a bunch of times
-            for _ in range(5):
-                self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
-                self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
-                self.pyboy.tick(4 * self.action_freq, render=True)
-                
-            # press b bunch of times in case surf failed
-            for _ in range(5):
-                self.pyboy.send_input(WindowEvent.PRESS_BUTTON_B)
-                self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_B, delay=8)
-                self.pyboy.tick(4 * self.action_freq, render=True)
+            
+        # press b bunch of times in case surf failed
+        for _ in range(5):
+            self.pyboy.send_input(WindowEvent.PRESS_BUTTON_B)
+            self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_B, delay=8)
+            self.pyboy.tick(4 * self.action_freq, render=True)

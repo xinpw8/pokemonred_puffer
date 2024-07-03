@@ -1,34 +1,331 @@
+# wandb:
+#   entity: xinpw8
+#   project: pokemonred
+#   group: ~
+
+# debug:
+#   env:
+#     headless: True
+#     stream_wrapper: False
+#     init_state: Bulbasaur
+#     max_steps: 24480
+#     disable_wild_encounters: True
+#     disable_ai_actions: False
+#   train:
+#     device: cuda # cpu
+#     compile: True
+#     compile_mode: "reduce-overhead"
+#     num_envs: 16
+#     envs_per_worker: 1
+#     envs_per_batch: 1
+#     batch_size: 16
+#     batch_rows: 4
+#     bptt_horizon: 2
+#     total_timesteps: 500_000_000_000
+#     save_checkpoint: False
+#     checkpoint_interval: 4
+#     save_overlay: True
+#     overlay_interval: 4
+#     verbose: True
+#     env_pool: True
+#     log_frequency: 5000
+#     load_optimizer_state: False
+#     # swarm_frequency: 10
+#     # swarm_keep_pct: .1
+
+# env:
+#   headless: True
+#   save_final_state: True
+#   print_rewards: True
+#   video_dir: video
+#   state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
+#   init_state: pokemon_mansion # fuchsia_beat_koga_ready_to_surf # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
+#   action_freq: 24 # 24
+#   max_steps: 20480 # 40960 # 20480 # 20480 # 2048
+#   save_video: False
+#   fast_video: False
+#   frame_stacks: 1
+#   perfect_ivs: True
+#   reduce_res: True
+#   two_bit: True
+#   fixed_x: False
+#   use_global_map: False
+#   log_frequency: 5000 # 1000
+#   # infinite_money: True
+#   # auto_flash: True
+#   # auto_pokeflute: True
+#   # auto_teach_cut: True
+#   # auto_use_cut: True
+#   # auto_teach_surf: True
+#   # auto_use_surf: True
+#   # auto_teach_strength: True
+#   # auto_solve_strength_puzzles: True
+#   # disable_wild_encounters: True
+#   # disable_ai_actions: False
+#   # skip_rocket_hideout_bool: True
+#   # skip_silph_co_bool: True
+#   # skip_safari_zone_bool: True
+#   # put_poke_flute_in_bag_bool: True
+#   # put_silph_scope_in_bag_bool: True
+#   # put_bicycle_in_bag_bool: True
+#   # put_strength_in_bag_bool: True
+#   # put_surf_in_bag_bool: True
+#   # put_cut_in_bag_bool: True
+#   # auto_remove_all_nonuseful_items: True
+
+#   infinite_money: False
+#   auto_flash: False
+#   auto_pokeflute: False
+#   auto_teach_cut: False
+#   auto_use_cut: False
+#   auto_teach_surf: False
+#   auto_use_surf: False
+#   auto_teach_strength: False
+#   auto_solve_strength_puzzles: False
+#   disable_wild_encounters: False
+#   disable_ai_actions: False
+#   skip_rocket_hideout_bool: False
+#   skip_silph_co_bool: False
+#   skip_safari_zone_bool: False
+#   put_poke_flute_in_bag_bool: False
+#   put_silph_scope_in_bag_bool: False
+#   put_bicycle_in_bag_bool: False
+#   put_strength_in_bag_bool: False
+#   put_surf_in_bag_bool: False
+#   put_cut_in_bag_bool: False
+#   auto_remove_all_nonuseful_items: False
+
+#   furthest_states_dir: saved_states/furthest_states
+#   save_each_env_state_dir: saved_states/save_each_env_states
+#   load_states_on_start_dir: saved_states/general_saved_states # load_states_on_start
+#   general_saved_state_dir: saved_states/general_saved_states
+#   save_each_env_state_freq: 5000000
+#   save_all_env_states_bool: True
+#   save_furthest_map_states: False
+#   save_state: False
+#   load_states_on_start: False
+#   load_furthest_map_n_on_reset: False
+
+# train:
+#   seed: 1
+#   torch_deterministic: True
+#   device: cuda
+#   compile: True
+#   compile_mode: "reduce-overhead"
+#   float32_matmul_precision: "high"
+#   total_timesteps: 100_000_000_000_000_000
+#   batch_size: 65536 
+#   learning_rate: 2.0e-4
+#   anneal_lr: False
+#   gamma: 0.998
+#   gae_lambda: 0.95
+#   num_minibatches: 4
+#   update_epochs: 3
+#   norm_adv: True
+#   clip_coef: 0.1
+#   clip_vloss: True
+#   ent_coef: 0.01
+#   vf_coef: 0.5
+#   max_grad_norm: 0.5
+#   target_kl: ~
+#   batch_rows: 128
+#   bptt_horizon: 16 
+#   vf_clip_coef: 0.1
+
+#   num_envs: 96
+#   envs_per_worker: 1
+#   envs_per_batch: 32
+#   env_pool: True
+
+#   verbose: True
+#   data_dir: data
+#   save_checkpoint: True
+#   checkpoint_interval: 200
+#   save_overlay: True
+#   overlay_interval: 50 # 100
+#   cpu_offload: True
+#   pool_kernel: [0]
+#   load_optimizer_state: False
+
+#   # swarm_frequency: 500
+#   # swarm_keep_pct: .8
+
+# wrappers:
+#   baseline:
+#     - stream_wrapper.StreamWrapper:
+#         user: bet_bet_bet
+#     - exploration.DecayWrapper:
+#         step_forgetting_factor:
+#           npc: 0.995
+#           coords: 0.9995
+#           map_ids: 0.995
+#           explore: 0.9995
+#           start_menu: 0.998
+#           pokemon_menu: 0.998
+#           stats_menu: 0.998
+#           bag_menu: 0.998
+#           action_bag_menu: 0.998
+#         forgetting_frequency: 10
+  
+#   finite_coords:
+#     - stream_wrapper.StreamWrapper:
+#         user: bet_bet_bet
+#     - exploration.MaxLengthWrapper:
+#         capacity: 1750
+
+#   stream_only:
+#     - stream_wrapper.StreamWrapper:
+#         user: bet_bet_bet 
+
+# rewards:
+#   baseline.BaselineRewardEnv:
+#     reward:
+#   baseline.TeachCutReplicationEnv:
+#     reward:
+#       event: 1.0
+#       bill_saved: 5.0
+#       seen_pokemon: 4.0
+#       caught_pokemon: 4.0
+#       moves_obtained: 4.0
+#       hm_count: 10.0
+#       level: 1.0
+#       badges: 10.0
+#       exploration: 0.02
+#       cut_coords: 1.0
+#       cut_tiles: 1.0
+#       start_menu: 0.01
+#       pokemon_menu: 0.1
+#       stats_menu: 0.1
+#       bag_menu: 0.1
+
+#   baseline.TeachCutReplicationEnvFork:
+#     reward:
+#       event: 1.0
+#       bill_saved: 5.0
+#       moves_obtained: 4.0
+#       hm_count: 10.0
+#       badges: 10.0
+#       exploration: 0.02
+#       cut_coords: 1.0
+#       cut_tiles: 1.0
+#       start_menu: 0.01
+#       pokemon_menu: 0.1
+#       stats_menu: 0.1
+#       bag_menu: 0.1
+#       taught_cut: 10.0
+#       explore_npcs: 0.02
+#       explore_hidden_objs: 0.02
+
+#   baseline.CutWithObjectRewardsEnv:
+#     reward:
+#       event: 1.0
+#       bill_saved: 5.0
+#       seen_pokemon: 4.0
+#       caught_pokemon: 4.0
+#       moves_obtained: 4.0
+#       hm_count: 10.0
+#       level: 1.0
+#       badges: 15.0
+#       exploration: 0.03
+#       cut_coords: 0.0
+#       cut_tiles: 0.0
+#       start_menu: 0.00
+#       pokemon_menu: 0.0
+#       stats_menu: 0.0
+#       bag_menu: 0.0
+#       rocket_hideout_found: 10.0
+#       event_scale: 0.04248 # experimentally-determined
+#       rock_tunnel_events: 5.0
+#       gym_3_events: 5.0
+#       gym_4_events: 5.0
+#       gym_5_events: 5.0
+#       gym_6_events: 5.0
+#       gym_7_events: 5.0
+#       gym_8_events: 5.0
+#       dojo_events: 5.0
+#       snorlax_events: 5.0
+#       safari_events: 25.0 # 5
+#       mansion_events: 5.0
+#       lab_events: 5.0
+#       exp_bonus_multiplier: 1.0
+#       bonus_exploration_before_completion: 0.04
+#       bonus_exploration_after_completion: 0.00
+#       bonus_exploration_else_values: 0.00
+#       rubbed_captains_back: 10.0
+#       beat_rocket_hideout_giovanni: 20.0 # 10 (low)
+#       rocket_hideout_events: 5.0
+#       pokemon_tower_events: 10 # 5 (only 40%)
+#       rescued_mr_fuji: 10.0
+#       silph_co_events: 2.50 # 5 (too much b4)
+#       beat_silph_co_giovanni: 10.0
+#       got_poke_flute: 10.0
+#       has_lemonade_in_bag: 20.0
+#       has_fresh_water_in_bag: 20.0
+#       has_soda_pop_in_bag: 20.0
+#       has_silph_scope_in_bag: 20.0
+#       has_lift_key_in_bag: 0
+#       has_pokedoll_in_bag: 0
+#       has_bicycle_in_bag: 20.0
+#       skip_silph_co_entered_silph_co_penalty: -0.10 # penalty for entering silph co
+#       seen_action_bag_menu: 0.10
+#       required_item: 5.0
+#       required_event: 5.0
+#       useful_item: 1.0
+
+
+
+
+
+# policies:
+#   multi_convolutional.MultiConvolutionalPolicy:
+#     policy:
+#       hidden_size: 512
+
+#     recurrent:
+#       # Assumed to be in the same module as the policy
+#       name: RecurrentMultiConvolutionalWrapper
+#       input_size: 512
+#       hidden_size: 512
+#       num_layers: 1
+
+
 wandb:
   entity: xinpw8
-  project: pokemonred
+  project: pokemon
   group: ~
 
 debug:
   env:
-    headless: True
+    headless: False
     stream_wrapper: False
     init_state: Bulbasaur
-    max_steps: 24480
+    max_steps: 16
+    log_frequency: 1
     disable_wild_encounters: True
-    disable_ai_actions: False
+    disable_ai_actions: True
+    use_global_map: False
+    reduce_res: False
+    animate_scripts: True
   train:
-    device: cuda # cpu
-    compile: True
-    compile_mode: "reduce-overhead"
-    num_envs: 16
-    envs_per_worker: 1
-    envs_per_batch: 1
-    batch_size: 16
+    device: cpu
+    compile: False
+    compile_mode: default
+    num_envs: 1
+    num_workers: 1
+    env_batch_size: 4
+    env_pool: True
+    zero_copy: False
+    batch_size: 128
+    minibatch_size: 4
     batch_rows: 4
     bptt_horizon: 2
-    total_timesteps: 500_000_000_000
-    save_checkpoint: False
+    total_timesteps: 100_000_000
+    save_checkpoint: True
     checkpoint_interval: 4
     save_overlay: True
-    overlay_interval: 4
+    overlay_interval: 1
     verbose: True
-    env_pool: True
-    log_frequency: 5000
+    env_pool: False
     load_optimizer_state: False
     # swarm_frequency: 10
     # swarm_keep_pct: .1
@@ -42,13 +339,15 @@ env:
   init_state: pokemon_mansion # fuchsia_beat_koga_ready_to_surf # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
   max_steps: 20480 # 40960 # 20480 # 20480 # 2048
-  save_video: False
-  fast_video: False
+  save_video: False # False
+  stuck_video: False
+  fast_video: True
   frame_stacks: 1
   perfect_ivs: True
   reduce_res: True
   two_bit: True
   fixed_x: False
+  use_global_map: False
   log_frequency: 5000 # 1000
   infinite_money: True
   auto_flash: True
@@ -71,6 +370,29 @@ env:
   put_surf_in_bag_bool: True
   put_cut_in_bag_bool: True
   auto_remove_all_nonuseful_items: True
+
+  # infinite_money: False
+  # auto_flash: False
+  # auto_pokeflute: False
+  # auto_teach_cut: False
+  # auto_use_cut: False
+  # auto_teach_surf: False
+  # auto_use_surf: False
+  # auto_teach_strength: False
+  # auto_solve_strength_puzzles: False
+  # disable_wild_encounters: False
+  # disable_ai_actions: False
+  # skip_rocket_hideout_bool: False
+  # skip_silph_co_bool: False
+  # skip_safari_zone_bool: False
+  # put_poke_flute_in_bag_bool: False
+  # put_silph_scope_in_bag_bool: False
+  # put_bicycle_in_bag_bool: False
+  # put_strength_in_bag_bool: False
+  # put_surf_in_bag_bool: False
+  # put_cut_in_bag_bool: False
+  # auto_remove_all_nonuseful_items: False
+
   furthest_states_dir: saved_states/furthest_states
   save_each_env_state_dir: saved_states/save_each_env_states
   load_states_on_start_dir: saved_states/general_saved_states # load_states_on_start
@@ -82,6 +404,9 @@ env:
   load_states_on_start: False
   load_furthest_map_n_on_reset: False
 
+
+
+
 train:
   seed: 1
   torch_deterministic: True
@@ -89,8 +414,9 @@ train:
   compile: True
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
-  total_timesteps: 100_000_000_000_000_000
+  total_timesteps: 100_000_000_000
   batch_size: 65536 
+  minibatch_size: 2048
   learning_rate: 2.0e-4
   anneal_lr: False
   gamma: 0.998
@@ -108,25 +434,31 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 96
-  envs_per_worker: 1
-  envs_per_batch: 32
+  num_envs: 288 # 96 # 288 # 96
+  num_workers: 24 # 24
+  env_batch_size: 72 # 32 # 72 # 8
   env_pool: True
+  zero_copy: False
 
   verbose: True
-  data_dir: data
-  save_checkpoint: True
-  checkpoint_interval: 200
+  data_dir: runs
+  save_checkpoint: False
+  checkpoint_interval: 500
   save_overlay: True
-  overlay_interval: 50 # 100
-  cpu_offload: True
+  overlay_interval: 100
+  cpu_offload: False # False
   pool_kernel: [0]
   load_optimizer_state: False
+  use_rnn: True
+  async_wrapper: False
 
   # swarm_frequency: 500
   # swarm_keep_pct: .8
 
 wrappers:
+  empty:
+    - episode_stats.EpisodeStatsWrapper: {}
+
   baseline:
     - stream_wrapper.StreamWrapper:
         user: bet_bet_bet
@@ -142,16 +474,40 @@ wrappers:
           bag_menu: 0.998
           action_bag_menu: 0.998
         forgetting_frequency: 10
+    - exploration.OnResetExplorationWrapper:
+        full_reset_frequency: 1
+        jitter: 0
   
   finite_coords:
     - stream_wrapper.StreamWrapper:
         user: bet_bet_bet
     - exploration.MaxLengthWrapper:
         capacity: 1750
+    - exploration.OnResetExplorationWrapper:
+        full_reset_frequency: 1
+        jitter: 0
 
   stream_only:
     - stream_wrapper.StreamWrapper:
         user: bet_bet_bet 
+    - exploration.OnResetExplorationWrapper:
+        full_reset_frequency: 1
+        jitter: 1
+
+  fixed_reset_value:
+    - stream_wrapper.StreamWrapper:
+        user: bet_bet_bet 
+    - exploration.OnResetLowerToFixedValueWrapper:
+        fixed_value:
+          coords: 0.33
+          map_ids: 0.33
+          npc: 0.33
+          cut: 0.33
+          explore: 0.33
+    - exploration.OnResetExplorationWrapper:
+        full_reset_frequency: 25
+        jitter: 0
+    - episode_stats.EpisodeStatsWrapper: {}
 
 rewards:
   baseline.BaselineRewardEnv:
@@ -250,16 +606,15 @@ rewards:
 
 
 
-
-
 policies:
   multi_convolutional.MultiConvolutionalPolicy:
     policy:
       hidden_size: 512
 
-    recurrent:
+    rnn:
       # Assumed to be in the same module as the policy
-      name: RecurrentMultiConvolutionalWrapper
-      input_size: 512
-      hidden_size: 512
-      num_layers: 1
+      name: MultiConvolutionalRNN
+      args:
+        input_size: 512
+        hidden_size: 512
+        num_layers: 1
