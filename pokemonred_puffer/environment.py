@@ -459,8 +459,10 @@ class RedGymEnv(Env):
 
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
-        # if self.save_video:
-        #     self.start_video()
+        # rn for EVAL only
+        # sloppy ik
+        if self.save_video:
+            self.start_video()
             
         self.explore_map_dim = 384
         options = options or {}
@@ -1009,7 +1011,7 @@ class RedGymEnv(Env):
 
         # self.last_map = map_n
             
-        if self.save_video and self.stuck_video_started:
+        if self.save_video: #  and self.stuck_video_started:
             self.add_v_frame()
             
         # if self.stuck_video_started:
@@ -1119,8 +1121,8 @@ class RedGymEnv(Env):
             self.first = True
             new_reward = -self.total_reward * 0.5
 
-        # if self.save_video and reset:
-        #     self.full_frame_writer.close()
+        if self.save_video and reset:
+            self.full_frame_writer.close()
 
         return obs, new_reward, reset, False, info
         
