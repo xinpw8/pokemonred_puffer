@@ -192,3 +192,19 @@ STRENGTH_SPECIES_IDS = {
     Species.MEWTWO.value,
     Species.MEW.value,
 }
+
+FLY_SPECIES_IDS = {
+    Species.PIDGEY.value,
+    Species.PIDGEOTTO.value,
+    Species.PIDGEOT.value,
+    Species.SPEAROW.value,
+    Species.FEAROW.value,
+    Species.FARFETCHD.value,
+    Species.DODUO.value,
+    Species.DODRIO.value,
+    Species.AERODACTYL.value,
+    Species.ARTICUNO.value,
+    Species.ZAPDOS.value,
+    Species.MOLTRES.value,
+    Species.MEW.value
+}

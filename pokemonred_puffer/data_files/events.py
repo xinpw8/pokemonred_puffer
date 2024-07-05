@@ -2571,6 +2571,15 @@ class EventFlagsBits(LittleEndianStructure):
         ("EVENT_9FF", c_uint8, 1),
     ]
 
+    @classmethod
+    def bit_offset(cls, event_name):
+        offset = 0
+        for field_name, field_type, field_size in cls._fields_:
+            if field_name == event_name:
+                return offset
+            offset += field_size
+        raise AttributeError(f"{event_name} not found in EventFlagsBits")
+
 class EventFlags(Union):
     _fields_ = [("b", EventFlagsBits), ("asbytes", c_uint8 * 320)]
 

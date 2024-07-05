@@ -1,5 +1,14 @@
 import random
 from . import data
+import logging
+
+# Configure logging
+logging.basicConfig(
+    filename="diagnostics.log",  # Name of the log file
+    filemode="a",  # Append to the file
+    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
+    level=logging.INFO,  # Log level
+)
 
 # addresses from https://datacrystal.romhacking.net/wiki/Pok%C3%A9mon_Red/Blue:RAM_map
 # https://github.com/pret/pokered/blob/91dc3c9f9c8fd529bb6e8307b58b96efa0bec67e/constants/event_constants.asm
@@ -1276,7 +1285,7 @@ pokemon_data = [
 ]
 
 
-moves_dict = {
+MOVES_DICT = {
     1: {
         "Move": "Pound",
         "Type": "Normal",
@@ -2630,7 +2639,7 @@ def pokemon_dict(pyboy):
                 move_value = read_m(pyboy, moves_address)
                 if move_value != 0x00:
                     # Get the move information and add the move name to the Pokémon's moves
-                    move_info = moves_dict.get(move_value, {})
+                    move_info = MOVES_DICT.get(move_value, {})
                     move_name = move_info.get("Move", "")
                     pokemon_info[i]["moves"].append(move_name)
     return pokemon_info
@@ -3061,24 +3070,35 @@ def update_party_hp_to_max(pyboy):
 
 def restore_party_move_pp(pyboy):
     """
-    Restores the PP of all moves for the party Pokémon based on moves_dict data.
+    Restores the PP of all moves for the party Pokémon based on MOVES_DICT data.
     """
-    for i in range(len(MOVE1)):  # Assuming same length for MOVE1 to MOVE4
-        moves_ids = [
-            mem_val(pyboy, move_addr) for move_addr in [MOVE1[i], MOVE2[i], MOVE3[i], MOVE4[i]]
-        ]
+    try:
+        for i in range(len(MOVE1)):  # Assuming same length for MOVE1 to MOVE4
+            moves_ids = [
+                mem_val(pyboy, move_addr) for move_addr in [MOVE1[i], MOVE2[i], MOVE3[i], MOVE4[i]]
+            ]
 
-        for j, move_id in enumerate(moves_ids):
-            if move_id in moves_dict:
-                # Fetch the move's max PP
-                max_pp = moves_dict[move_id]["PP"]
+            for j, move_id in enumerate(moves_ids):
+                if move_id in MOVES_DICT:
+                    try:
+                        # Fetch the move's max PP
+                        max_pp = MOVES_DICT[move_id]["PP"]
 
-                # Determine the corresponding PP address based on the move slot
-                pp_addr = [MOVE1PP[i], MOVE2PP[i], MOVE3PP[i], MOVE4PP[i]][j]
+                        # Determine the corresponding PP address based on the move slot
+                        pp_addr = [MOVE1PP[i], MOVE2PP[i], MOVE3PP[i], MOVE4PP[i]][j]
 
-                # Restore the move's PP
-                write_mem(pyboy, pp_addr, max_pp)
-                # print(f"Restored PP for {moves_dict[move_id]['Move']} to {max_pp}.")
-            else:
-                pass
-                # print(f"Move ID {move_id} not found in moves_dict.")
+                        # Restore the move's PP
+                        write_mem(pyboy, pp_addr, max_pp)
+                        # print(f"Restored PP for {MOVES_DICT[move_id]['Move']} to {max_pp}.")
+                    except Exception as e:
+                        # print(f"Error: {e}")
+                        logging.info(f'error in ram_map.py restore_party_move_pp: {e}')
+                        pass
+                else:
+                    pass
+                    # print(f"Move ID {move_id} not found in MOVES_DICT.")
+    except Exception as e:
+        # print(f"Error: {e}")
+        logging.info(f'Whole function error in ram_map.py restore_party_move_pp: {e}')
+        pass
+

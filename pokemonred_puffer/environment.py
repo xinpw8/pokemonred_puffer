@@ -7,6 +7,7 @@ from multiprocessing import Lock, shared_memory
 from pathlib import Path
 from typing import Any, Iterable, Optional
 import uuid
+import shutil
 
 import mediapy as media
 import numpy as np
@@ -56,6 +57,7 @@ from pokemonred_puffer.data_files.tm_hm import (
     CUT_SPECIES_IDS,
     STRENGTH_SPECIES_IDS,
     SURF_SPECIES_IDS,
+    FLY_SPECIES_IDS,
     TmHmMoves,
 )
 
@@ -67,14 +69,35 @@ logging.basicConfig(
     level=logging.INFO,  # Log level
 )
 
+# shared events
+from multiprocessing import Manager
 
 class RedGymEnv(Env):
+    manager = Manager()
+    shared_event_flags = manager.dict()
     env_id = shared_memory.SharedMemory(create=True, size=4)
-    lock = Lock()
-
+    
     logging.info(f"env_{env_id}: Logging initialized.")
+    lock = Lock()
+    shared_memory_initialized = False
 
     def __init__(self, env_config: pufferlib.namespace):
+        if not RedGymEnv.shared_memory_initialized:
+            RedGymEnv.env_id = shared_memory.SharedMemory(create=True, size=4)
+            RedGymEnv.shared_memory_initialized = True
+
+        # share events across envs
+        self.synchronized_events_bool = env_config.synchronized_events_bool
+        if self.synchronized_events_bool:
+            self.shared_event_flags = RedGymEnv.shared_event_flags
+            self.lock = RedGymEnv.lock
+            with self.lock:
+                if 'leading_sum' not in self.shared_event_flags:
+                    self.shared_event_flags['leading_sum'] = 0
+                for i in range(EVENTS_FLAGS_LENGTH):
+                    if i not in self.shared_event_flags:
+                        self.shared_event_flags[i] = 0
+
         self.video_dir = Path(env_config.video_dir)
         # self.session_path = Path(env_config.session_path)
         # self.video_path = self.video_dir / self.session_path
@@ -103,6 +126,7 @@ class RedGymEnv(Env):
         self.auto_teach_surf = env_config.auto_teach_surf
         self.auto_use_surf = env_config.auto_use_surf
         self.auto_teach_strength = env_config.auto_teach_strength
+        self.auto_teach_fly = env_config.auto_teach_fly
         self.auto_solve_strength_puzzles = env_config.auto_solve_strength_puzzles
         self.load_states_on_start = env_config.load_states_on_start
         self.load_states_on_start_dir = env_config.load_states_on_start_dir
@@ -129,6 +153,8 @@ class RedGymEnv(Env):
         self.put_cut_in_bag_bool = env_config.put_cut_in_bag_bool
         self.auto_remove_all_nonuseful_items = env_config.auto_remove_all_nonuseful_items
         self.item_testing = env_config.item_testing
+        self.heal_health_and_pp = env_config.heal_health_and_pp
+        self.catch_stuck_state = env_config.catch_stuck_state
         self.action_space = ACTION_SPACE
         self.levels = 0
         self.reset_count = 0
@@ -217,9 +243,8 @@ class RedGymEnv(Env):
             self.stuck_video_started = False
             self.max_video_frames = 600  # Maximum number of frames per video
             self.frame_count = 0
-            if self.only_record_stuck_state:
-                self.stuck_state_recording_counter = 0
-                self.stuck_state_recording_started = False
+            self.stuck_state_recording_counter = 0
+            self.stuck_state_recording_started = False
             
         self.stuck_threshold = 24480 
         self.reset_count = 0
@@ -244,7 +269,7 @@ class RedGymEnv(Env):
         self.index_count = 0
         self.stuck_count = 0
         self.last_coords = (0, 0, 0)
-
+        
         # Set this in SOME subclasses
         self.metadata = {"render.modes": []}
         self.reward_range = (0, 15000)
@@ -402,6 +427,13 @@ class RedGymEnv(Env):
     def save_all_states(self):
         _, _, map_n = self.get_game_coords()  # c, r, map_n
         map_name = get_map_name(map_n)
+        
+        # Check if map_n is in the restricted list
+        if map_n in [159, 160, 161, 162]:
+            print(f"Skipping state save for map number {map_n} ({map_name})")
+            logging.info(f"Skipping state save for map number {map_n} ({map_name})")
+            return
+        
         saved_state_dir = self.save_each_env_state_dir
         saved_state_dir = os.path.join(saved_state_dir, f"step_{self.global_step_count}_saves")
         if not os.path.exists(saved_state_dir):
@@ -412,7 +444,7 @@ class RedGymEnv(Env):
             logging.info(f"State saved for env_id: {self.env_id} to file {saved_state_file}; global step: {self.global_step_count}")
         print("State saved for env_id:", self.env_id, "on map:", map_name, "to file:", saved_state_file)
         self.state_already_saved = True
-
+        
     def load_all_states(self):
         # Define the default directory where the saved state is stored
         default_saved_state_dir = self.general_saved_state_dir
@@ -447,7 +479,7 @@ class RedGymEnv(Env):
                 logging.info(f"State loaded for env_id: {self.env_id} from file: {saved_state_file}")
             else:
                 # Load a random state if the state for the current env_id does not exist
-                state_files = [f for f in os.listdir(saved_state_dir) if f.endswith(".state")]
+                state_files = [f for f in os.listdir(saved_state_dir) if f.endswith(".state") and "foam" not in f.lower()]
                 if state_files:
                     # Choose a random state file
                     random_state_file = os.path.join(saved_state_dir, random.choice(state_files))
@@ -458,8 +490,8 @@ class RedGymEnv(Env):
                     print(f"No state found for env_id: {self.env_id}. Loaded random state: {random_state_file}")
                     logging.info(f"No state found for env_id: {self.env_id}. Loaded random state: {random_state_file}")
                 else:
-                    print(f"No saved states found in {saved_state_dir}.")
-                    logging.info(f"No saved states found in {saved_state_dir}.")
+                    print(f"No saved states found in {saved_state_dir} excluding 'foam'.")
+                    logging.info(f"No saved states found in {saved_state_dir} excluding 'foam'.")
         except Exception as e:
             print(f"env_id: {self.env_id}: Error loading state: {e}")
             logging.error(f"env_id: {self.env_id}: Error loading state: {e}")
@@ -468,9 +500,19 @@ class RedGymEnv(Env):
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
         # rn for EVAL only
         # sloppy ik
-        if self.save_video and not self.only_record_stuck_state:
-            self.start_video()
-            
+        # if self.save_video and not self.only_record_stuck_state:
+        #     self.start_video()
+        
+        if self.catch_stuck_state:
+            c, r, map_n = self.get_game_coords()  # x, y, map_n
+            if (c, r, map_n) == (25, 16, 162):
+                print(f'env_id: {self.env_id}: coords: {c, r, map_n} - video recording NOT started.')
+                logging.info(f'env_id: {self.env_id}: coords: {c, r, map_n} - video recording NOT started.')
+            else:
+                self.start_video()
+                print(f'video recording started for env_id: {self.env_id}')
+                logging.info(f'video recording started for env_id: {self.env_id}')
+        
         self.explore_map_dim = 384
         options = options or {}
         if self.first or options.get("state", None) is not None:
@@ -504,7 +546,7 @@ class RedGymEnv(Env):
 
         
         self.last_coords = self.get_game_coords()
-        if self.reset_count % 2 == 0:
+        if self.reset_count % 10 == 0:
             self.save_all_states()
         
         if self.load_furthest_map_n_on_reset:
@@ -544,6 +586,11 @@ class RedGymEnv(Env):
         self.taught_fly = self.check_if_party_has_hm(0x13)
         self.taught_flash = self.check_if_party_has_hm(0x0C)
         
+        # heal to full and pp to full
+        if self.heal_health_and_pp:
+            ram_map.update_party_hp_to_max(self.pyboy)
+            ram_map.restore_party_move_pp(self.pyboy)
+            
         # items management        
         if self.auto_remove_all_nonuseful_items:
             self.remove_all_nonuseful_items()
@@ -575,6 +622,12 @@ class RedGymEnv(Env):
         self.progress_reward = self.get_game_state_reward()
         self.total_reward = sum([val for _, val in self.progress_reward.items()])
 
+       
+        # shared events
+        if self.synchronized_events_bool:
+            self.synchronize_events()
+        
+        
         self.first = False
         infos = {}
         if self.save_state:
@@ -890,17 +943,40 @@ class RedGymEnv(Env):
             self.has_bicycle_in_bag = True
             self.has_bicycle_in_bag_reward = 20
 
-    def step(self, action):
-        
-        # record video when agent gets stuck in specific seafoam islands map
-        c, r, map_n = self.get_game_coords()
-        if (c, r, map_n) == (25, 16, 162) and self.stuck_state_recording_counter < 100 and not self.stuck_state_recording_started:
+    # record video when agent gets stuck on specific coords
+    # videos are recorded by all envs. videos meeting conditions
+    # are moved to a separate folder.
+    def catch_stuck_state_method(self):
+        c,r,map_n = self.get_game_coords()
+        if (c, r, map_n) == (25, 16, 162) and self.stuck_state_recording_counter < 1000 and self.stuck_state_recording_started:
             self.stuck_state_recording_counter += 1
-        if self.stuck_state_recording_counter >= 100:
+        if self.stuck_state_recording_counter >= 1000:
+            self.stuck_state_recording_started = False
+            self.full_frame_writer.close()
+            print(f'env_id: {self.env_id} - video recording stopped. filename: tempfile_env_id_{self.env_id}.mp4')
+            logging.info(f'env_id: {self.env_id} - video recording stopped. filename: tempfile_env_id_{self.env_id}.mp4')
             self.stuck_state_recording_counter = 0
-            self.stuck_state_recording_started = True
-            self.start_video()
-            
+            file_name = f"tempfile_env_id_{self.env_id}.mp4"
+            file_path = Path("/bet_adsorption_xinpw8/thatguy_events_obs/pokemonred_puffer/video/rollouts") / file_name
+            keep_dir = file_path.parent / "keep"
+            keep_dir.mkdir(parents=True, exist_ok=True)
+            if file_path.exists():
+                shutil.move(str(file_path), keep_dir / file_path.name)
+                print(f"File {file_path.name} moved to {keep_dir}")
+                logging.info(f'File {file_path.name} moved to {keep_dir}')
+            else:
+                print(f'env_id: {self.env_id} - File {file_path.name} does not exist.')
+                logging.info(f'env_id: {self.env_id} - File {file_path.name} does not exist.')
+
+        if self.stuck_state_recording_started:
+            self.add_v_frame()    
+    
+    def step(self, action):
+
+
+        # c, r, map_n = self.get_game_coords()
+        if self.catch_stuck_state:
+            self.catch_stuck_state_method()
             
         # if not self.read_m(0xD057) == 0:
         #     self.stuck_detector(c, r, map_n)
@@ -921,15 +997,16 @@ class RedGymEnv(Env):
 
         # self.last_map = map_n
         
-        if self.save_video and self.only_record_stuck_state and self.stuck_state_recording_started:
-            if self.frame_count <= self.max_video_frames:
-                self.add_v_frame()
-                self.frame_count += 1
-            else:
-                self.full_frame_writer.close()
-                self.load_all_states()
-        elif self.save_video and not self.only_record_stuck_state:
-            self.add_v_frame()
+        ## Some video recording logic
+        # if self.save_video and self.only_record_stuck_state and self.stuck_state_recording_started:
+        #     if self.frame_count <= self.max_video_frames:
+        #         self.add_v_frame()
+        #         self.frame_count += 1
+        #     else:
+        #         self.full_frame_writer.close()
+        #         self.load_all_states()
+        # elif self.save_video and not self.only_record_stuck_state:
+        #     self.add_v_frame()
             
         # if self.stuck_video_started:
         #     self.add_video_frame()
@@ -1066,12 +1143,13 @@ class RedGymEnv(Env):
                 self.solve_missable_strength_puzzle()
                 self.solve_switch_strength_puzzle()
 
+
         if self.events.get_event("EVENT_GOT_HM02"): # 0xD7E0, 6 FLY
-            # if self.auto_teach_fly and not self.check_if_party_has_hm(0x02):
-            #     self.teach_hm(TmHmMoves.FLY.value, 15, FLY_SPECIES_IDS)
-                # # set badge 3 (Lt. Surge - ThunderBadge) if not obtained or can't use Fly
-                # if self.read_bit(0xD356, 3) == 0:
-                #     self.set_badge(1)
+            if self.auto_teach_fly and not self.check_if_party_has_hm(0x02):
+                self.teach_hm(TmHmMoves.FLY.value, 15, FLY_SPECIES_IDS)
+                # set badge 3 (Lt. Surge - ThunderBadge) if not obtained or can't use Fly
+                if self.read_bit(0xD356, 3) == 0:
+                    self.set_badge(3)
             pass
         
         if (map_n in [27, 25] or map_n == 23) and self.auto_pokeflute and 'Poke Flute' in self.api.items.get_bag_item_ids():
@@ -1441,9 +1519,10 @@ class RedGymEnv(Env):
         self.full_frame_writer.add_image(self.video())  
     
     def start_video(self):
-        if self.only_record_stuck_state and not self.stuck_state_recording_started:
-            return
+        # if self.only_record_stuck_state and not self.stuck_state_recording_started:
+        #     return
         
+        self.stuck_state_recording_started = True
         if self.full_frame_writer is not None:
             self.full_frame_writer.close()
         # if self.model_frame_writer is not None:
@@ -1451,15 +1530,18 @@ class RedGymEnv(Env):
         # if self.map_frame_writer is not None:
         #     self.map_frame_writer.close()
 
-        base_dir = self.video_dir / Path("rollouts")
-        base_dir.mkdir(exist_ok=True)
+        self.base_dir = self.video_dir / Path("rollouts")
+        self.base_dir.mkdir(exist_ok=True)
         c, r, map_n = self.get_game_coords()
-        full_name = Path(f"video_env_id_{self.env_id}_({c}_{r}_{map_n})_stuck_count_{self.stuck_count}_reset_{self.reset_count}").with_suffix(".mp4")
+        if self.catch_stuck_state:
+            full_name = Path(f"tempfile_env_id_{self.env_id}").with_suffix(".mp4")
+        else:
+            full_name = Path(f"video_env_id_{self.env_id}_({c}_{r}_{map_n})_stuck_count_{self.stuck_count}_reset_{self.reset_count}").with_suffix(".mp4")
         # model_name = Path(f"model_reset_id{self.instance_id}").with_suffix(".mp4")
         # map_name = Path(f"map_reset_id{self.instance_id}").with_suffix(".mp4")
 
         self.full_frame_writer = media.VideoWriter(
-            base_dir / full_name, (144, 160), fps=60, input_format="gray"
+            self.base_dir / full_name, (144, 160), fps=60, input_format="gray"
         )
         self.full_frame_writer.__enter__()
         # self.model_frame_writer = media.VideoWriter(
@@ -1470,27 +1552,6 @@ class RedGymEnv(Env):
         #     base_dir / map_name, (self.coords_pad * 4, self.coords_pad * 4), fps=60, input_format="gray"
         # )
         # self.map_frame_writer.__enter__()
-
-    def add_video_frame(self):
-        full_frame = self.screen.ndarray[:, :, 1]
-        # model_frame = self.screen.ndarray[:, :, 1]
-
-        if self.full_frame_writer:
-            self.full_frame_writer.add_image(full_frame)
-        # if self.model_frame_writer:
-        #     model_frame_resized = np.resize(model_frame, (144, 160))
-        #     self.model_frame_writer.add_image(model_frame_resized)
-        # if self.map_frame_writer:
-        #     map_frame = self.generate_map_frame()
-        #     map_frame_2d = np.squeeze(map_frame)  # Ensure the map frame is 2D
-        #     self.map_frame_writer.add_image(map_frame_2d)
-        self.frame_count += 1
-
-        if self.frame_count >= self.max_video_frames:
-            self.stuck_video_started = False
-            self.full_frame_writer.close()
-            # self.model_frame_writer.close()
-            # self.map_frame_writer.close()
 
     def generate_map_frame(self):
         game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
@@ -1531,6 +1592,10 @@ class RedGymEnv(Env):
         if isinstance(addr, str):
             return self.pyboy.memory[self.pyboy.symbol_lookup(addr)[1]]
         return self.pyboy.memory[addr]
+    
+    def write_mem(self, addr, value):
+        mem = self.pyboy.memory[addr] = value
+        return mem
 
     def read_short(self, addr: str | int) -> int:
         if isinstance(addr, str):
@@ -1544,13 +1609,13 @@ class RedGymEnv(Env):
 
     def set_bit(self, address, bit, value=True):
         """Set the value of a specific bit at the given address."""
-        current_value = self.pyboy.get_memory_value(address)
+        current_value = self.pyboy.memory[address]
         bit_mask = 1 << bit
         if value:
             new_value = current_value | bit_mask
         else:
             new_value = current_value & ~bit_mask
-        self.pyboy.set_memory_value(address, new_value)
+        self.pyboy.memory[address] = new_value
    
     def read_event_bits(self):
         _, addr = self.pyboy.symbol_lookup("wEventFlags")
@@ -1694,7 +1759,7 @@ class RedGymEnv(Env):
                 saved_state_dir = self.furthest_states_dir
 
             else:
-                return  # Do nothing if neither condition is met...
+                return  # Do nothing if no condition is met...
 
             # Ensure the directory exists
             os.makedirs(saved_state_dir, exist_ok=True)
@@ -2056,16 +2121,40 @@ class RedGymEnv(Env):
                 self.pyboy.memory[address] = current_value | (1 << bit)
 
     def set_event(self, event_name, value=True):
-        event_flag_address = EVENT_FLAGS_START + getattr(EventFlagsBits, event_name).offset
-        current_value = self.pyboy.get_memory_value(event_flag_address)
-        bit_mask = 1 << getattr(EventFlagsBits, event_name).bit
+        event_bits = EventFlagsBits()
+        event_flag_address = EVENT_FLAGS_START + (event_bits.__class__.bit_offset(event_name) // 8)
+        current_value = self.pyboy.memory[event_flag_address]
+        bit_mask = 1 << (event_bits.__class__.bit_offset(event_name) % 8)
         
         if value:
             new_value = current_value | bit_mask
         else:
             new_value = current_value & ~bit_mask
 
-        self.pyboy.set_memory_value(event_flag_address, new_value)    
+        self.pyboy.memory[event_flag_address] = new_value
+        
+    def get_event_flags(self):
+        return [
+            self.read_m(i)
+            for i in range(EVENT_FLAGS_START, EVENT_FLAGS_START + EVENTS_FLAGS_LENGTH)
+        ]
+
+    def set_event_flags(self, event_flags):
+        for i, value in enumerate(event_flags):
+            self.write_mem(EVENT_FLAGS_START + i, value)
+
+    def synchronize_events(self):
+        current_flags = self.get_event_flags()
+        current_sum = self.get_events_sum()
+
+        with self.lock:
+            leading_env_sum = self.shared_event_flags.get('leading_sum', 0)
+            if current_sum > leading_env_sum:
+                self.shared_event_flags['leading_sum'] = current_sum
+                for i in range(EVENTS_FLAGS_LENGTH):
+                    self.shared_event_flags[i] = current_flags[i]
+
+        self.set_event_flags([self.shared_event_flags[i] for i in range(EVENTS_FLAGS_LENGTH)])
     
     def flip_gym_leader_bits(self):
         badge_bits_dict = self.get_badges_bits()
@@ -2277,13 +2366,14 @@ class RedGymEnv(Env):
             return
 
         # c, r, map_n
-        surf_spots_in_cavern = {(23, 5, 162), (7, 11, 162), (7, 3, 162), (15, 7, 161), (23, 9, 161)}
+        surf_spots_in_cavern = {(23, 5, 162), (7, 11, 162), (7, 3, 162), (15, 7, 161), (23, 9, 161), (25, 16, 162)}
         current_tileset = self.read_m("wCurMapTileset")
         in_overworld = current_tileset == Tilesets.OVERWORLD.value
         in_plateau = current_tileset == Tilesets.PLATEAU.value
         in_cavern = current_tileset == Tilesets.CAVERN.value
 
-        if not (in_overworld or in_plateau or (in_cavern and self.get_game_coords() in surf_spots_in_cavern)):
+        player_coords = self.get_game_coords()
+        if not (in_overworld or in_plateau or (in_cavern and player_coords in surf_spots_in_cavern)):
             return
 
         _, wTileMap = self.pyboy.symbol_lookup("wTileMap")
@@ -2307,6 +2397,21 @@ class RedGymEnv(Env):
         else:
             return
 
+        if player_coords == ((25, 16, 162)):
+            self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
+            self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
+            self.pyboy.tick(self.action_freq, render=True)
+
+
+            for _ in range(4):
+                self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
+                self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
+                self.pyboy.tick(4 * self.action_freq, render=True)
+            
+            self.pyboy.send_input(WindowEvent.PRESS_ARROW_UP)
+            self.pyboy.send_input(WindowEvent.RELEASE_ARROW_UP, delay=8)
+            self.pyboy.tick(self.action_freq, render=True)
+            
         # open start menu
         self.pyboy.send_input(WindowEvent.PRESS_BUTTON_START)
         self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START, delay=8)

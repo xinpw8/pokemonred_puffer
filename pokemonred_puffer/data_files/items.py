@@ -226,3 +226,11 @@ HM_ITEMS = {
     Items.HM_04,
     Items.HM_05,
 }
+
+HM_ITEM_IDS = {
+    Items.HM_01.value,
+    Items.HM_02.value,
+    Items.HM_03.value,
+    Items.HM_04.value,
+    Items.HM_05.value,
+}

@@ -77,7 +77,7 @@ class StreamWrapper(gym.Wrapper):
         self.stream_metadata.update({
             "user": self.user,
             "env_id": f'\nenv_id: {self.env_id}\ncoords: ({self.x_pos}, {self.y_pos}, {self.map_n})\nmap_name: {self.map_name}',
-            "color": "#5CC2BF",
+            "color": "#400868",
             # "extras": f'env_id: {self.env_id}\ncoords: ({self.x_pos}, {self.y_pos}, {self.map_n})\nmap_name: {self.map_name}',
         })
         
