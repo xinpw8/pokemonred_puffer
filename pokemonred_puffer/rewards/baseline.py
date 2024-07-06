@@ -336,8 +336,11 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
             self.hideout_progress = ram_map_leanke.monitor_hideout_events(self.pyboy)
             self.pokemon_tower_progress = ram_map_leanke.monitor_poke_tower_events(self.pyboy)
             self.silph_progress = ram_map_leanke.monitor_silph_co_events(self.pyboy)
+            self.gym_8_progress = ram_map_leanke.monitor_gym8_events(self.pyboy)
+            self.gym_7_progress = ram_map_leanke.monitor_gym7_events(self.pyboy)
+            self.pokemon_mansion_progress = ram_map_leanke.monitor_mansion_events(self.pyboy)
 
-            # Objectives on bonus map COMPLETED: disincentivize exploration of: Gym 3 \ Gym 4 \ Rocket Hideout \ Pokemon Tower \ Silph Co
+            # Objectives on bonus map COMPLETED: disincentivize exploration of: Gym 3\4\7\8 \ Rocket Hideout \ Pokemon Tower \ Silph Co \ Pokemon Mansion
             if (
                 (map_n == 92 and self.get_badges() >= 3)
                 or (map_n == 134 and self.get_badges() >= 4)
@@ -353,10 +356,22 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
                     map_n in self.silph_co_maps
                     and self.silph_progress["beat_silph_co_giovanni"] != 0
                 )
+                or (
+                    map_n in self.gym_8_map
+                    and self.gym_8_progress["eight"] != 0
+                )
+                or (
+                    map_n in self.gym_7_map
+                    and self.gym_7_progress["seven"] != 0
+                )
+                or (
+                    map_n in self.pokemon_mansion_maps
+                    and sum(self.pokemon_mansion_progress.values()) > 6
+                )
             ):
                 rew = self.bonus_exploration_after_completion * sum(self.seen_coords.values())
 
-            # Objectives on bonus map NOT complete: incentivize exploration of: Gym 3 \ Gym 4 \ Rocket Hideout \ Pokemon Tower \ Silph Co
+            # Objectives on bonus map NOT complete: incentivize exploration of: Gym 3\4\7\8 \ Rocket Hideout \ Pokemon Tower \ Silph Co \ Pokemon Mansion
             elif (
                 (map_n == 92 and self.get_badges() < 3)
                 or (map_n == 134 and self.get_badges() < 4)
@@ -371,6 +386,18 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
                 or (
                     map_n in self.silph_co_maps
                     and self.silph_progress["beat_silph_co_giovanni"] == 0
+                )
+                or (
+                    map_n in self.gym_8_map
+                    and self.gym_8_progress["eight"] == 0
+                )
+                or (
+                    map_n in self.gym_7_map
+                    and self.gym_7_progress["seven"] == 0
+                )
+                or (
+                    map_n in self.pokemon_mansion_maps
+                    and sum(self.pokemon_mansion_progress.values()) < 7
                 )
             ):
                 rew = self.bonus_exploration_before_completion * sum(self.seen_coords.values())

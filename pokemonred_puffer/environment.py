@@ -193,6 +193,9 @@ class RedGymEnv(Env):
         self.route_10_completed = False
         self.rock_tunnel_completed = False
         self.safari_zone_maps = [217, 218, 219, 220, 221, 222, 223, 224, 225]
+        self.pokemon_mansion_maps = [165, 214, 215, 216]
+        self.gym_7_map = [166]
+        self.gym_8_map = [45]
         self.last_map = -1
         self.last_map_gate = -1
 
@@ -502,6 +505,7 @@ class RedGymEnv(Env):
         # sloppy ik
         # if self.save_video and not self.only_record_stuck_state:
         #     self.start_video()
+
         
         if self.catch_stuck_state:
             c, r, map_n = self.get_game_coords()  # x, y, map_n
@@ -562,6 +566,10 @@ class RedGymEnv(Env):
             self.skip_rocket_hideout()        
         if self.skip_silph_co_triggered:
             self.skip_silph_co()
+        
+        # mark all previous event flags to True        
+        if self.skip_rocket_hideout_bool or self.skip_silph_co_bool or self.skip_safari_zone_bool:
+            self.mark_all_previous_events_true()
         
         self.state_already_saved = False
         self.explore_map *= 0
@@ -735,34 +743,33 @@ class RedGymEnv(Env):
             # Validate coordinates
             if gr == 0 and gc == 0:
                 logging.warning(f"Invalid global coordinates for map_id {map_n}. Skipping visited_mask update.")
-                visited_mask = np.zeros_like(game_pixels_render)
-            else:
-                try:
-                    # Ensure the indices are within bounds before slicing
-                    if 0 <= gr - 4 and gr + 6 <= self.explore_map.shape[0] and 0 <= gc - 4 and gc + 6 <= self.explore_map.shape[1]:
-                        sliced_explore_map = self.explore_map[gr - 4 : gr + 6, gc - 4 : gc + 6]
-                        if sliced_explore_map.size > 0:  # Ensure the array is not empty
-                            visited_mask = (
-                                255
-                                * np.repeat(
-                                    np.repeat(sliced_explore_map, 16 // scale, 0),
-                                    16 // scale,
-                                    -1,
-                                )
-                            ).astype(np.uint8)[6 // scale : -10 // scale, :]
-                            visited_mask = np.expand_dims(visited_mask, -1)
-                        else:
-                            logging.warning(f"env_id: {self.env_id}: Sliced explore map is empty for global coordinates: ({gr}, {gc})")
-                            visited_mask = np.zeros_like(game_pixels_render)
+                # visited_mask = np.zeros_like(game_pixels_render)
+                gr = 50
+                gc = 50
+
+            try:
+                # Ensure the indices are within bounds before slicing
+                if 0 <= gr - 4 and gr + 6 <= self.explore_map.shape[0] and 0 <= gc - 4 and gc + 6 <= self.explore_map.shape[1]:
+                    sliced_explore_map = self.explore_map[gr - 4 : gr + 6, gc - 4 : gc + 6]
+                    if sliced_explore_map.size > 0:  # Ensure the array is not empty
+                        visited_mask = (
+                            255
+                            * np.repeat(
+                                np.repeat(sliced_explore_map, 16 // scale, 0),
+                                16 // scale,
+                                -1,
+                            )
+                        ).astype(np.uint8)[6 // scale : -10 // scale, :]
+                        visited_mask = np.expand_dims(visited_mask, -1)
                     else:
-                        logging.warning(f"env_id: {self.env_id}: Coordinates out of bounds! global: ({gr}, {gc}) game: ({player_y}, {player_x}, {map_n})")
+                        logging.warning(f"env_id: {self.env_id}: Sliced explore map is empty for global coordinates: ({gr}, {gc})")
                         visited_mask = np.zeros_like(game_pixels_render)
-                except IndexError as e:
-                    logging.error(f"env_id: {self.env_id}: Index error while creating visited_mask: {e}")
+                else:
+                    logging.warning(f"env_id: {self.env_id}: Coordinates out of bounds! global: ({gr}, {gc}) game: ({player_y}, {player_x}, {map_n})")
                     visited_mask = np.zeros_like(game_pixels_render)
-                except ValueError as e:
-                    logging.error(f"env_id: {self.env_id}: Value error while creating visited_mask: {e}")
-                    visited_mask = np.zeros_like(game_pixels_render)
+            except Exception as e:
+                logging.error(f"env_id: {self.env_id}: Error while creating visited_mask: {e}")
+                visited_mask = np.zeros_like(game_pixels_render)
 
         if self.use_global_map:
             global_map = np.expand_dims(
@@ -1158,7 +1165,7 @@ class RedGymEnv(Env):
             self.skip_rocket_hideout()
         elif self.skip_silph_co_bool and int(self.read_bit(0xD76C, 0)) != 0 and (c == 18 and r == 23 and map_n == 10 or ((c == 17 or c == 18) and r == 22 and map_n == 10)):  # has poke flute
             self.skip_silph_co()
-        elif self.skip_safari_zone_bool and c in [15, 18, 19] and r in [4, 5, 7] and map_n == 7:
+        elif self.skip_safari_zone_bool and ((c == 15 and r == 5 and map_n == 7) or (c == 15 and r == 4 and map_n == 7) or ((c == 18 or c == 19) and (r == 5 and map_n == 7)) or ((c == 18 or c == 19) and (r == 4 and map_n == 7))):
             self.skip_safari_zone()
 
     #     # TODO: Add support for video recording
@@ -1998,22 +2005,22 @@ class RedGymEnv(Env):
                     for _ in range(2):
                         self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
                         self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                        self.pyboy.tick(2 * self.action_freq, render=True)
+                        self.pyboy.tick(4 * self.action_freq, render=True)
                 elif c == 15 and r == 4 and map_n == 7:
                     for _ in range(3):
                         self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
                         self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                        self.pyboy.tick(3 * self.action_freq, render=True)
+                        self.pyboy.tick(4 * self.action_freq, render=True)
                 elif (c == 18 or c == 19) and (r == 5 and map_n == 7):
                     for _ in range(1):
                         self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
                         self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                        self.pyboy.tick(2 * self.action_freq, render=True)
+                        self.pyboy.tick(4 * self.action_freq, render=True)
                 elif (c == 18 or c == 19) and (r == 4 and map_n == 7):
                     for _ in range(1):
                         self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
                         self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                        self.pyboy.tick(2 * self.action_freq, render=True)
+                        self.pyboy.tick(4 * self.action_freq, render=True)
 
             # print(f'env_{self.env_id}: r: {r}, c: {c}, map_n: {map_n}')
         except Exception as e:
@@ -2120,6 +2127,43 @@ class RedGymEnv(Env):
                 current_value = self.pyboy.memory[address]
                 self.pyboy.memory[address] = current_value | (1 << bit)
 
+                
+    def mark_all_previous_events_true(self):
+        # Iterate over each event flag address in reverse order
+        for address in range(ram_map.EVENT_FLAGS_END, ram_map.EVENT_FLAGS_START - 1, -1):
+            current_value = self.pyboy.memory[address]
+            
+            # Iterate over each bit in the byte in reverse order
+            for bit in range(7, -1, -1):
+                if (address, bit) in ram_map.EXCLUDED_EVENTS:
+                    continue
+
+                bit_mask = 1 << bit
+                # Check if this bit is set
+                if current_value & bit_mask:
+                    # If bit is set, set all previous bits to True and return
+                    self.set_all_previous_bits_true(address, bit)
+                    return
+
+    def set_all_previous_bits_true(self, last_address, last_bit):
+        # Iterate over each event flag address
+        for address in range(ram_map.EVENT_FLAGS_START, last_address + 1):
+            current_value = self.pyboy.memory[address]
+            
+            if address == last_address:
+                # Set bits from 0 to last_bit
+                for bit in range(last_bit):
+                    if (address, bit) not in ram_map.EXCLUDED_EVENTS:
+                        current_value |= (1 << bit)
+            else:
+                # Set all bits in the byte
+                for bit in range(8):
+                    if (address, bit) not in ram_map.EXCLUDED_EVENTS:
+                        current_value |= (1 << bit)
+            
+            self.pyboy.memory[address] = current_value
+    
+    
     def set_event(self, event_name, value=True):
         event_bits = EventFlagsBits()
         event_flag_address = EVENT_FLAGS_START + (event_bits.__class__.bit_offset(event_name) // 8)

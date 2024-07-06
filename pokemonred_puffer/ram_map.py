@@ -29,9 +29,16 @@ OAK_PARCEL_ADDR = 0xD74E
 OAK_POKEDEX_ADDR = 0xD74B
 OPPONENT_LEVEL = 0xCFF3
 ENEMY_POKE_COUNT = 0xD89C
+
 EVENT_FLAGS_START = 0xD747
-EVENT_FLAGS_END = 0xD886  # 0xD761
+EVENT_FLAGS_END = 0xD886 # 0xD761
 EVENTS_FLAGS_LENGTH = EVENT_FLAGS_END - EVENT_FLAGS_START
+EXCLUDED_EVENTS = [
+    (0xD747, 3),  # EVENT_HALL_OF_FAME_DEX_RATING
+    (0xD790, 6),  # EVENT_SAFARI_GAME_OVER
+    (0xD790, 7)   # EVENT_IN_SAFARI_ZONE
+]
+
 MUSEUM_TICKET_ADDR = 0xD754
 USED_CELL_SEPARATOR_ADDR = 0xD7F2
 MONEY_ADDR_1 = 0xD347
@@ -1284,7 +1291,6 @@ pokemon_data = [
     {"hex": "BE", "decimal": "190", "name": "Victreebel"},
 ]
 
-
 MOVES_DICT = {
     1: {
         "Move": "Pound",
@@ -1710,7 +1716,14 @@ MOVES_DICT = {
         "Power": 90,
         "Acc": "100%",
     },
-    54: {"Move": "Mist", "Type": "Ice", "Phy/Spec": "Status", "PP": 30, "Power": "—", "Acc": "—%"},
+    54: {
+        "Move": "Mist",
+        "Type": "Ice",
+        "Phy/Spec": "Status",
+        "PP": 30,
+        "Power": "—",
+        "Acc": "—%",
+    },
     55: {
         "Move": "Water Gun",
         "Type": "Water",
@@ -2299,7 +2312,7 @@ MOVES_DICT = {
         "Move": "Clamp",
         "Type": "Water",
         "Category": "Physical",
-        "PP": 15,
+        "PP": 10,
         "Power": 35,
         "Accuracy": "85%",
     },
@@ -2387,7 +2400,8 @@ MOVES_DICT = {
         "Move": "Poison Gas",
         "Type": "Poison",
         "Category": "Status",
-        "Power": 40,
+        "PP": 40,
+        "Power": "—",
         "Accuracy": 90,
     },
     140: {
@@ -2410,122 +2424,196 @@ MOVES_DICT = {
         "Move": "Lovely Kiss",
         "Type": "Normal",
         "Category": "Status",
-        "Power": 10,
+        "Power": "—",
+        "PP": 10,
         "Accuracy": 75,
     },
     143: {
         "Move": "Sky Attack",
         "Type": "Flying",
         "Category": "Physical",
-        "Power": 5,
-        "PP": 140,
+        "Power": 140,
+        "PP": 5,
         "Accuracy": 90,
     },
-    144: {"Move": "Transform", "Type": "Normal", "Category": "Status", "Power": 10},
+    144: {
+        "Move": "Transform",
+        "Type": "Normal",
+        "Category": "Status",
+        "Power": "—",
+        "PP": 10,
+        "Accuracy": "—%",
+    },
     145: {
         "Move": "Bubble",
         "Type": "Water",
         "Category": "Special",
-        "Power": 30,
-        "PP": 40,
+        "Power": 40,
+        "PP": 30,
         "Accuracy": 100,
     },
     146: {
         "Move": "Dizzy Punch",
         "Type": "Normal",
         "Category": "Physical",
-        "Power": 10,
-        "PP": 70,
+        "Power": 70,
+        "PP": 10,
         "Accuracy": 100,
     },
-    147: {"Move": "Spore", "Type": "Grass", "Category": "Status", "Power": 15, "Accuracy": 100},
-    148: {"Move": "Flash", "Type": "Normal", "Category": "Status", "Power": 20, "Accuracy": 100},
+    147: {
+        "Move": "Spore",
+        "Type": "Grass",
+        "Category": "Status",
+        "Power": "—",
+        "PP": 15,
+        "Accuracy": 100,
+    },
+    148: {
+        "Move": "Flash",
+        "Type": "Normal",
+        "Category": "Status",
+        "Power": "—",
+        "PP": 20,
+        "Accuracy": 100,
+    },
     149: {
         "Move": "Psywave",
         "Type": "Psychic",
         "Category": "Special",
-        "Power": 15,
+        "Power": "—",
+        "PP": 15,
         "Accuracy": 100,
     },
-    150: {"Move": "Splash", "Type": "Normal", "Category": "Status", "Power": 40},
-    151: {"Move": "Acid Armor", "Type": "Poison", "Category": "Status", "Power": 20},
+    150: {
+        "Move": "Splash",
+        "Type": "Normal",
+        "Category": "Status",
+        "Power": "—",
+        "PP": 40,
+        "Accuracy": "—%",
+    },
+    151: {
+        "Move": "Acid Armor",
+        "Type": "Poison",
+        "Category": "Status",
+        "Power": "—",
+        "PP": 20,
+        "Accuracy": "—%",
+    },
     152: {
         "Move": "Crabhammer",
         "Type": "Water",
         "Category": "Physical",
-        "Power": 10,
-        "PP": 100,
+        "Power": 100,
+        "PP": 10,
         "Accuracy": 90,
     },
     153: {
         "Move": "Explosion",
         "Type": "Normal",
         "Category": "Physical",
-        "Power": 5,
-        "PP": 250,
+        "Power": 250,
+        "PP": 5,
         "Accuracy": 100,
     },
     154: {
         "Move": "Fury Swipes",
         "Type": "Normal",
         "Category": "Physical",
-        "Power": 15,
-        "PP": 18,
+        "Power": 18,
+        "PP": 15,
         "Accuracy": 80,
     },
     155: {
         "Move": "Bonemerang",
         "Type": "Ground",
         "Category": "Physical",
-        "Power": 10,
-        "PP": 50,
+        "Power": 50,
+        "PP": 10,
         "Accuracy": 90,
     },
-    156: {"Move": "Rest", "Type": "Psychic", "Category": "Status", "Power": 5},
+    156: {
+        "Move": "Rest",
+        "Type": "Psychic",
+        "Category": "Status",
+        "Power": "—",
+        "PP": 10,
+        "Accuracy": "—%",
+    },
     157: {
         "Move": "Rock Slide",
         "Type": "Rock",
         "Category": "Physical",
-        "Power": 10,
-        "PP": 75,
+        "Power": 75,
+        "PP": 10,
         "Accuracy": 90,
     },
     158: {
         "Move": "Hyper Fang",
         "Type": "Normal",
         "Category": "Physical",
-        "Power": 15,
-        "PP": 80,
+        "Power": 80,
+        "PP": 15,
         "Accuracy": 90,
     },
-    159: {"Move": "Sharpen", "Type": "Normal", "Category": "Status", "Power": 30},
-    160: {"Move": "Conversion", "Type": "Normal", "Category": "Status", "Power": 30},
+    159: {
+        "Move": "Sharpen",
+        "Type": "Normal",
+        "Category": "Status",
+        "Power": "—",
+        "PP": 30,
+        "Accuracy": "—%",
+    },
+    160: {
+        "Move": "Conversion",
+        "Type": "Normal",
+        "Category": "Status",
+        "Power": "—",
+        "PP": 30,
+        "Accuracy": "—%",
+    },
     161: {
         "Move": "Tri Attack",
         "Type": "Normal",
         "Category": "Special",
-        "Power": 10,
-        "PP": 80,
+        "Power": 80,
+        "PP": 10,
         "Accuracy": 100,
     },
     162: {
         "Move": "Super Fang",
         "Type": "Normal",
         "Category": "Physical",
-        "Power": 10,
+        "Power": "—",
+        "PP": 10,
         "Accuracy": 90,
     },
     163: {
         "Move": "Slash",
         "Type": "Normal",
         "Category": "Physical",
-        "Power": 20,
-        "PP": 70,
+        "Power": 70,
+        "PP": 20,
         "Accuracy": 100,
     },
-    164: {"Move": "Substitute", "Type": "Normal", "Category": "Status", "Power": 10},
-    165: {"Move": "Struggle", "Type": "Normal", "Category": "Physical", "Power": 1, "PP": 50},
+    164: {
+        "Move": "Substitute",
+        "Type": "Normal",
+        "Category": "Status",
+        "Power": "—",
+        "PP": 10,
+        "Accuracy": "—%",
+    },
+    165: {
+        "Move": "Struggle",
+        "Type": "Normal",
+        "Category": "Physical",
+        "Power": 50,
+        "PP": "—",
+        "Accuracy": "—%",
+    },
 }
+
 
 # def read_m(pyboy, addr: str | int) -> int:
 #     if isinstance(addr, str):
