@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 import uuid
 import shutil
+import json
 
 import mediapy as media
 import numpy as np
@@ -155,6 +156,13 @@ class RedGymEnv(Env):
         self.item_testing = env_config.item_testing
         self.heal_health_and_pp = env_config.heal_health_and_pp
         self.catch_stuck_state = env_config.catch_stuck_state
+        self.complete_all_previous_badge_bool = env_config.complete_all_previous_badge_bool
+                
+        self.previous_coords = None
+        self.stuck_steps = 0
+        self.test_event_index = 0
+        self.events_to_test = list(range(ram_map.EVENT_FLAGS_START, ram_map.EVENT_FLAGS_END + 1))
+                
         self.action_space = ACTION_SPACE
         self.levels = 0
         self.reset_count = 0
@@ -170,6 +178,10 @@ class RedGymEnv(Env):
         self.seen_stats_menu = 0
         self.seen_bag_menu = 0
         self.seen_action_bag_menu = 0
+        
+        # events
+        self.previous_true_events = {}
+        self.skipped_glitch_coords = False
 
 
         self.state_already_saved = False
@@ -438,7 +450,7 @@ class RedGymEnv(Env):
             return
         
         saved_state_dir = self.save_each_env_state_dir
-        saved_state_dir = os.path.join(saved_state_dir, f"step_{self.global_step_count}_saves")
+        saved_state_dir = os.path.join(saved_state_dir, f"reset_num_{self.reset_count}_saves")
         if not os.path.exists(saved_state_dir):
             os.makedirs(saved_state_dir, exist_ok=True)
         saved_state_file = os.path.join(saved_state_dir, f"state_{self.env_id}_{map_name}.state")
@@ -501,15 +513,16 @@ class RedGymEnv(Env):
 
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
+        c, r, map_n = self.get_game_coords()  # x, y, map_n
         # rn for EVAL only
         # sloppy ik
-        # if self.save_video and not self.only_record_stuck_state:
-        #     self.start_video()
+        if self.save_video and not self.only_record_stuck_state:
+            self.start_video()
 
         
         if self.catch_stuck_state:
             c, r, map_n = self.get_game_coords()  # x, y, map_n
-            if (c, r, map_n) == (25, 16, 162):
+            if (c, r, map_n) == (29, 4, 33):
                 print(f'env_id: {self.env_id}: coords: {c, r, map_n} - video recording NOT started.')
                 logging.info(f'env_id: {self.env_id}: coords: {c, r, map_n} - video recording NOT started.')
             else:
@@ -550,7 +563,7 @@ class RedGymEnv(Env):
 
         
         self.last_coords = self.get_game_coords()
-        if self.reset_count % 10 == 0:
+        if self.reset_count % 1 == 0 and map_n == 33: # on route 22
             self.save_all_states()
         
         if self.load_furthest_map_n_on_reset:
@@ -567,9 +580,13 @@ class RedGymEnv(Env):
         if self.skip_silph_co_triggered:
             self.skip_silph_co()
         
-        # mark all previous event flags to True        
-        if self.skip_rocket_hideout_bool or self.skip_silph_co_bool or self.skip_safari_zone_bool:
-            self.mark_all_previous_events_true()
+        # # mark all previous event flags to True        
+        # if self.skip_rocket_hideout_bool or self.skip_silph_co_bool or self.skip_safari_zone_bool:
+        #     self.mark_all_previous_events_true()
+        
+        # # Set all badges to True prior to the highest badge
+        # if self.complete_all_previous_badge_bool:
+        #     self.complete_all_previous_badge()
         
         self.state_already_saved = False
         self.explore_map *= 0
@@ -635,6 +652,7 @@ class RedGymEnv(Env):
         if self.synchronized_events_bool:
             self.synchronize_events()
         
+        self.export_previous_true_events()
         
         self.first = False
         infos = {}
@@ -978,7 +996,81 @@ class RedGymEnv(Env):
         if self.stuck_state_recording_started:
             self.add_v_frame()    
     
+    def get_events(self):
+        events = ram_map.events(self.pyboy)
+        return events
+    
+    # Helper method to get current true events
+    def get_current_true_events(self):
+        true_events = {}
+        for address in range(ram_map.EVENT_FLAGS_START, ram_map.EVENT_FLAGS_END + 1):
+            current_value = self.pyboy.memory[address]
+            for bit in range(8):
+                if current_value & (1 << bit):
+                    true_events[(address, bit)] = True
+        return true_events
+
+    # Helper method to restore previously true events
+    def restore_previous_true_events(self):
+        for (address, bit), value in self.previous_true_events.items():
+            if value:
+                current_value = self.pyboy.memory[address]
+                self.pyboy.memory[address] = current_value | (1 << bit)
+            
+    def set_all_events_in_range_false(self, start_address, start_bit, end_address, end_bit):
+        # Iterate over each event flag address in the specified range
+        for address in range(start_address, end_address + 1):
+            current_value = self.pyboy.memory[address]
+            
+            if address == start_address:
+                # Set bits from start_bit to the end of the byte
+                for bit in range(start_bit, 8):
+                    current_value = self.set_bit_false(current_value, bit)
+            elif address == end_address:
+                # Set bits from the start of the byte to end_bit
+                for bit in range(0, end_bit + 1):
+                    current_value = self.set_bit_false(current_value, bit)
+            else:
+                # Set all bits in the byte to False
+                current_value = 0
+
+            self.pyboy.memory[address] = current_value
+    
+    def export_previous_true_events(self):
+        # Convert the tuple keys to string keys
+        str_true_events = {f"{address}_{bit}": value for (address, bit), value in self.previous_true_events.items()}         
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(current_dir, 'previous_true_events.json')
+        with open(file_path, 'w') as f:
+            json.dump(str_true_events, f)
+
+    def import_previous_true_events(self):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(current_dir, 'previous_true_events.json')
+        with open(file_path, 'r') as f:
+            str_true_events = json.load(f)
+        # Convert the string keys back to tuple keys
+        self.previous_true_events = {tuple(map(int, key.split('_'))): value for key, value in str_true_events.items()}
+       
+    
     def step(self, action):
+        c, r, map_n = self.get_game_coords()
+
+        # # Check for the specific condition
+        # if c in range(27, 31) and (r == 4 or r == 5) and map_n == 33:
+        #     # Store the current true events
+        #     self.previous_true_events = self.get_current_true_events()
+        #     # Export the previous true events to a file
+        #     self.export_previous_true_events()
+        #     # Set all events to false
+        #     self.set_all_events_in_range_false(ram_map.EVENT_FLAGS_START, 0, ram_map.EVENT_FLAGS_END, 7)
+        #     self.skipped_glitch_coords = True
+        # else:        
+        #     if self.skipped_glitch_coords:
+        #         # Restore the previously true events
+        #         self.import_previous_true_events()
+        #         self.restore_previous_true_events()
+        #         self.skipped_glitch_coords = False
 
 
         # c, r, map_n = self.get_game_coords()
@@ -1004,19 +1096,20 @@ class RedGymEnv(Env):
 
         # self.last_map = map_n
         
-        ## Some video recording logic
-        # if self.save_video and self.only_record_stuck_state and self.stuck_state_recording_started:
-        #     if self.frame_count <= self.max_video_frames:
-        #         self.add_v_frame()
-        #         self.frame_count += 1
-        #     else:
-        #         self.full_frame_writer.close()
-        #         self.load_all_states()
-        # elif self.save_video and not self.only_record_stuck_state:
-        #     self.add_v_frame()
+        # Some video recording logic
+        if self.save_video and self.only_record_stuck_state and self.stuck_state_recording_started:
+            if self.frame_count <= self.max_video_frames:
+                self.add_v_frame()
+                self.frame_count += 1
+            else:
+                self.full_frame_writer.close()
+                self.load_all_states()
+        elif self.save_video and not self.only_record_stuck_state:
+            if (c, r, map_n) == (29, 4, 33) or (c, r, map_n) == (29, 3, 33):
+                self.add_v_frame()
             
-        # if self.stuck_video_started:
-        #     self.add_video_frame()
+        if self.save_video and self.stuck_video_started:
+            self.add_v_frame()
 
         _, wMapPalOffset = self.pyboy.symbol_lookup("wMapPalOffset")
         if self.auto_flash and self.pyboy.memory[wMapPalOffset] == 6:
@@ -1031,7 +1124,7 @@ class RedGymEnv(Env):
         
         if self.disable_wild_encounters:
             self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = 0xFF
-
+        
         # Call nimixx api
         self.api.process_game_states()
         current_bag_items = self.api.items.get_bag_item_ids()
@@ -1053,8 +1146,8 @@ class RedGymEnv(Env):
         # set hm event flags if hm is in bag
         self.set_hm_event_flags()
 
-        # for testing beat silph co giovanni
-        self.set_bit(0xD838, 7, True)
+        # # for testing beat silph co giovanni
+        # self.set_bit(0xD838, 7, True)
 
         self.update_health()
         self.update_pokedex()
@@ -1168,12 +1261,6 @@ class RedGymEnv(Env):
         elif self.skip_safari_zone_bool and ((c == 15 and r == 5 and map_n == 7) or (c == 15 and r == 4 and map_n == 7) or ((c == 18 or c == 19) and (r == 5 and map_n == 7)) or ((c == 18 or c == 19) and (r == 4 and map_n == 7))):
             self.skip_safari_zone()
 
-    #     # TODO: Add support for video recording
-    #     # if save_video and fast_video:
-    #     #     add_video_frame()
-    #     if check_if_party_has_cut(pyboy):
-    #         cut_if_next(pyboy)
-
     def teach_hm(self, tmhm: int, pp: int, pokemon_species_ids):
         # find bulba and replace tackle (first skill) with cut
         party_size = self.read_m("wPartyCount")
@@ -1187,7 +1274,7 @@ class RedGymEnv(Env):
                     for slot in range(4):
                         move_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")[1] + slot
                         pp_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}PP")[1] + slot
-                        if self.pyboy.memory[move_addr] not in {0xF, 0x13, 0x39, 0x46, 0x94}:
+                        if self.pyboy.memory[move_addr] not in {0xF, 0x13, 0x39, 0x46, 0x94, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8}:
                             self.pyboy.memory[move_addr] = tmhm
                             self.pyboy.memory[pp_addr] = pp
                             break
@@ -1640,6 +1727,23 @@ class RedGymEnv(Env):
             badge_bits_dict[badge+1] = state
         return badge_bits_dict
 
+    def complete_all_previous_badge(self):
+        badge_address = 0xD356
+        badge_value = self.pyboy.memory[badge_address]
+
+        # Get the current badges bits
+        badges = self.get_badges_bits()
+        
+        # Determine the highest badge number
+        highest_badge_number = max(badge for badge, state in badges.items() if state)
+
+        # Set all badges prior to the highest badge
+        for badge_number in range(1, highest_badge_number):
+            badge_value = self.set_bit(badge_value, badge_number - 1)
+
+        # Write back the new badge value to memory
+        self.pyboy.memory[badge_address] = badge_value    
+        
     def read_party(self):
         _, addr = self.pyboy.symbol_lookup("wPartySpecies")
         party_length = self.pyboy.memory[self.pyboy.symbol_lookup("wPartyCount")[1]]
@@ -1849,7 +1953,7 @@ class RedGymEnv(Env):
         try:
             if (c, r, map_n) == self.last_coords:
                 self.stuck_count += 1
-                if self.stuck_count > self.stuck_threshold and not self.stuck_video_started:
+                if self.save_video and self.stuck_count > self.stuck_threshold and not self.stuck_video_started:
                     logging.info(f'env_id: {self.env_id} is stuck at (c, r, map_n) {(c, r, map_n)}. stuck_count: {self.stuck_count}. Starting video recording...')
                     self.start_video()
                     self.stuck_video_started = True
@@ -2127,6 +2231,21 @@ class RedGymEnv(Env):
                 current_value = self.pyboy.memory[address]
                 self.pyboy.memory[address] = current_value | (1 << bit)
 
+    def test_event(self):
+        if self.test_event_index < len(self.events_to_test):
+            event_address = self.events_to_test[self.test_event_index]
+            event_bit = 0  # Assuming testing bit 0 for simplification, adjust as needed
+            current_value = self.pyboy.memory[event_address]
+
+            # Toggle the event bit
+            if current_value & (1 << event_bit):
+                new_value = current_value & ~(1 << event_bit)
+            else:
+                new_value = current_value | (1 << event_bit)
+            
+            self.pyboy.memory[event_address] = new_value
+            print(f'Tested event at address {event_address}, bit {event_bit}')
+            self.test_event_index += 1
                 
     def mark_all_previous_events_true(self):
         # Iterate over each event flag address in reverse order

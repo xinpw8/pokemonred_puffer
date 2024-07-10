@@ -45,9 +45,9 @@ env:
   print_rewards: True
   video_dir: video
   state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
-  init_state: fuchsia_beat_koga_ready_to_surf # seafoam_surfing_next_to_stuck_spot # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
+  init_state: viridian_all_badges_gyar_arti # new, non-glitched viridian_all_badges_gyar_arti # fuchsia_beat_koga_ready_to_surf # seafoam_surfing_next_to_stuck_spot # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
-  max_steps: 20480 # 40960 # 20480 # 20480 # 2048
+  max_steps: 20480
   save_video: False
   stuck_video: False
   only_record_stuck_state: False
@@ -81,10 +81,11 @@ env:
   put_surf_in_bag_bool: True
   put_cut_in_bag_bool: True
   auto_remove_all_nonuseful_items: False
-  item_testing: True
+  item_testing: False
   heal_health_and_pp: True
   catch_stuck_state: False
-
+  complete_all_previous_badge_bool: False
+  
   # infinite_money: False
   # auto_flash: False
   # auto_pokeflute: False
@@ -292,7 +293,7 @@ rewards:
       dojo_events: 5.0
       snorlax_events: 5.0
       safari_events: 25.0 # 5
-      mansion_events: 10 # 5.0
+      mansion_events: 0 # 10 # 5.0
       lab_events: 5.0
       exp_bonus_multiplier: 1.0
       bonus_exploration_before_completion: 0.04
@@ -301,7 +302,7 @@ rewards:
       rubbed_captains_back: 10.0
       beat_rocket_hideout_giovanni: 20.0 # 10 (low)
       rocket_hideout_events: 5.0
-      pokemon_tower_events: 10 # 5 (only 40%)
+      pokemon_tower_events: 0 # 10 # 5 (only 40%)
       rescued_mr_fuji: 10.0
       silph_co_events: 2.50 # 5 (too much b4)
       beat_silph_co_giovanni: 10.0
@@ -318,8 +319,11 @@ rewards:
       required_item: 5.0
       required_event: 5.0
       useful_item: 1.0
+      
+      # bike voucher
 
-
+      # reward: 2nd route 22 rival battle
+      # exploration of route 22
 
 policies:
   multi_convolutional.MultiConvolutionalPolicy:
