@@ -307,7 +307,8 @@ class RedGymEnv(Env):
             "surf_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
             "strength_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
             # "fly_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
-            "map_id": spaces.Box(low=0, high=0xF7, shape=(1,), dtype=np.uint8),
+            "map_id": spaces.Box(low=0, high=300, shape=(1,), dtype=np.uint8),
+            # "map_id": spaces.Box(low=0, high=0xF7, shape=(1,), dtype=np.uint8),
             "badges": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
             "bag_items": spaces.Box(
                 low=0, high=max(ItemsThatGuy._value2member_map_.keys()), shape=(20,), dtype=np.uint8
@@ -536,7 +537,7 @@ class RedGymEnv(Env):
             self.recent_screens = deque()
             self.recent_actions = deque()
             self.init_mem()
-            self.reset_bag_item_rewards()
+            # self.reset_bag_item_rewards()
             self.seen_hidden_objs = {}
             self.seen_signs = {}
             if options.get("state", None) is not None:
@@ -704,13 +705,13 @@ class RedGymEnv(Env):
         self.has_pokedoll_in_bag = False
         self.has_bicycle_in_bag = False
 
-        self.has_lemonade_in_bag_reward = 0
-        self.has_fresh_water_in_bag_reward = 0
-        self.has_soda_pop_in_bag_reward = 0
-        self.has_silph_scope_in_bag_reward = 0
-        self.has_lift_key_in_bag_reward = 0
-        self.has_pokedoll_in_bag_reward = 0
-        self.has_bicycle_in_bag_reward = 0
+        # self.has_lemonade_in_bag_reward = 0
+        # self.has_fresh_water_in_bag_reward = 0
+        # self.has_soda_pop_in_bag_reward = 0
+        # self.has_silph_scope_in_bag_reward = 0
+        # self.has_lift_key_in_bag_reward = 0
+        # self.has_pokedoll_in_bag_reward = 0
+        # self.has_bicycle_in_bag_reward = 0
         
     def reset_bag_item_rewards(self):        
         self.has_lemonade_in_bag_reward = 0
@@ -845,7 +846,18 @@ class RedGymEnv(Env):
         numBagItems = self.read_m("wNumBagItems")
         # item ids start at 1 so using 0 as the nothing value is okay
         bag[2 * numBagItems :] = 0
-
+        
+        try:
+            map_n = self.read_m(0xD35E)
+            if 0 <= map_n < 247:
+                map_id = map_n
+            else:
+                map_id = 0
+                logging.info(f'env_id: {self.env_id}: Invalid map_id: {map_n}')
+        except Exception as e:
+            map_id = 0
+            logging.error(f'env_id: {self.env_id}: Error getting map_id: {e}')
+                    
         return (
             self.render()
             | {
@@ -863,7 +875,8 @@ class RedGymEnv(Env):
                 # "y": np.array(player_y, dtype=np.uint8),
                 # "map_id": np.array(map_n, dtype=np.uint8),
                 "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
-                "map_id": np.array(self.read_m(0xD35E), dtype=np.uint8),
+                # "map_id": np.array(self.read_m(0xD35E), dtype=np.uint8),
+                "map_id": np.array(map_id, dtype=np.uint8),
                 "bag_items": bag[::2].copy(),
                 "bag_quantity": bag[1::2].copy(),
                 # "rival_3": np.array(self.read_m("wSSAnne2FCurScript") == 4, dtype=np.uint8),
@@ -948,25 +961,25 @@ class RedGymEnv(Env):
     def check_bag_items(self, current_bag_items):
         if "Lemonade" in current_bag_items:
             self.has_lemonade_in_bag = True
-            self.has_lemonade_in_bag_reward = 20
+            # self.has_lemonade_in_bag_reward = 20
         if "Fresh Water" in current_bag_items:
             self.has_fresh_water_in_bag = True
-            self.has_fresh_water_in_bag_reward = 20
+            # self.has_fresh_water_in_bag_reward = 20
         if "Soda Pop" in current_bag_items:
             self.has_soda_pop_in_bag = True
-            self.has_soda_pop_in_bag_reward = 20
+            # self.has_soda_pop_in_bag_reward = 20
         if "Silph Scope" in current_bag_items:
             self.has_silph_scope_in_bag = True
-            self.has_silph_scope_in_bag_reward = 20
+            # self.has_silph_scope_in_bag_reward = 20
         if "Lift Key" in current_bag_items:
             self.has_lift_key_in_bag = True
-            self.has_lift_key_in_bag_reward = 20
+            # self.has_lift_key_in_bag_reward = 20
         if "Poke Doll" in current_bag_items:
             self.has_pokedoll_in_bag = True
-            self.has_pokedoll_in_bag_reward = 20
+            # self.has_pokedoll_in_bag_reward = 20
         if "Bicycle" in current_bag_items:
             self.has_bicycle_in_bag = True
-            self.has_bicycle_in_bag_reward = 20
+            # self.has_bicycle_in_bag_reward = 20
 
     # record video when agent gets stuck on specific coords
     # videos are recorded by all envs. videos meeting conditions

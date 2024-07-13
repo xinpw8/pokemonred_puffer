@@ -45,7 +45,7 @@ env:
   print_rewards: True
   video_dir: video
   state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
-  init_state: viridian_all_badges_gyar_arti # new, non-glitched viridian_all_badges_gyar_arti # fuchsia_beat_koga_ready_to_surf # seafoam_surfing_next_to_stuck_spot # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
+  init_state: elite_4_lorelei # new, non-glitched viridian_all_badges_gyar_arti # fuchsia_beat_koga_ready_to_surf # seafoam_surfing_next_to_stuck_spot # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
   max_steps: 20480
   save_video: False
