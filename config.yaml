@@ -8,7 +8,7 @@ debug:
     headless: False
     stream_wrapper: False
     init_state: Bulbasaur
-    max_steps: 16
+    max_steps: 160
     log_frequency: 1
     disable_wild_encounters: True
     disable_ai_actions: True
@@ -45,7 +45,7 @@ env:
   print_rewards: True
   video_dir: video
   state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
-  init_state: elite_4_lorelei # new, non-glitched viridian_all_badges_gyar_arti # fuchsia_beat_koga_ready_to_surf # seafoam_surfing_next_to_stuck_spot # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
+  init_state: Bulbasaur # elite_4_lorelei # new, non-glitched viridian_all_badges_gyar_arti # fuchsia_beat_koga_ready_to_surf # seafoam_surfing_next_to_stuck_spot # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
   max_steps: 20480
   save_video: False
@@ -120,6 +120,42 @@ env:
   load_furthest_map_n_on_reset: False
   synchronized_events_bool: False
 
+  # Boey config below
+  boey_headless: True
+  boey_save_final_state: True
+  boey_early_stop: True  # resumed early stopping to ensure reward signal
+  boey_action_freq: 24
+  boey_init_state: has_pokedex_nballs_noanim.state
+  boey_max_steps: 30720000 # 1024 * 1000 * 30  # 30m steps
+  # boey_env_max_steps: env_max_steps
+  boey_print_rewards: True
+  boey_save_video: False
+  boey_fast_video: True
+  boey_session_path: boey_session
+  boey_gb_path: red.gb
+  boey_debug: False
+  boey_sim_frame_dist: 2000000.0
+  boey_use_screen_explore: False
+  boey_reward_scale: 4
+  boey_extra_buttons: False
+  boey_restricted_start_menu: False
+  boey_noop_button: True
+  boey_swap_button: True
+  boey_enable_item_manager: True
+  boey_level_reward_badge_scale: 1.0
+  # boey_randomize_first_ep_split_cnt: boey_num_cpu
+  # boey_start_from_state_dir: boey_state_dir
+  boey_save_state_dir: env19_release
+  boey_explore_weight: 1.5  # 3
+  boey_special_exploration_scale: 1.0  # double the exploration for special maps (caverns)
+  boey_enable_stage_manager: True
+  boey_enable_item_purchaser: True
+  boey_auto_skip_anim: True
+  boey_auto_skip_anim_frames: 8
+  boey_early_stopping_min_reward: 2.0
+  boey_total_envs: boey_num_cpu
+  boey_level_manager_eval_mode: False  # True = full run
+  # boey_randomization: 0.3
 
 
 

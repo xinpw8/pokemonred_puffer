@@ -325,13 +325,16 @@ from pokemonred_puffer.cleanrl_puffer import CleanPuffeRL
 from pokemonred_puffer.environment import RedGymEnv
 from pokemonred_puffer.wrappers.async_io import AsyncWrapper
 
-
+## Modified make_policy to include Boey observations
 def make_policy(env, policy_name, args):
     policy_module_name, policy_class_name = policy_name.split(".")
     policy_module = importlib.import_module(f"pokemonred_puffer.policies.{policy_module_name}")
     policy_class = getattr(policy_module, policy_class_name)
 
-    policy = policy_class(env, **args.policies[policy_name]["policy"])
+    # Get the observation_space from the environment
+    boey_observation_space = env.unwrapped.env.observation_space
+
+    policy = policy_class(env, boey_observation_space, **args.policies[policy_name]["policy"])
     if args.train.use_rnn:
         rnn_config = args.policies[policy_name]["rnn"]
         policy_class = getattr(policy_module, rnn_config["name"])
@@ -341,6 +344,23 @@ def make_policy(env, policy_name, args):
         policy = pufferlib.frameworks.cleanrl.Policy(policy)
 
     return policy.to(args.train.device)
+
+
+# def make_policy(env, policy_name, args):
+#     policy_module_name, policy_class_name = policy_name.split(".")
+#     policy_module = importlib.import_module(f"pokemonred_puffer.policies.{policy_module_name}")
+#     policy_class = getattr(policy_module, policy_class_name)
+
+#     policy = policy_class(env, **args.policies[policy_name]["policy"])
+#     if args.train.use_rnn:
+#         rnn_config = args.policies[policy_name]["rnn"]
+#         policy_class = getattr(policy_module, rnn_config["name"])
+#         policy = policy_class(env, policy, **rnn_config["args"])
+#         policy = pufferlib.frameworks.cleanrl.RecurrentPolicy(policy)
+#     else:
+#         policy = pufferlib.frameworks.cleanrl.Policy(policy)
+
+#     return policy.to(args.train.device)
 
 
 # TODO: Replace with Pydantic or Spock parser

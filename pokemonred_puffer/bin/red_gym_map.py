@@ -2,13 +2,11 @@ import numpy as np
 from collections import deque
 
 # Assuming these constants are defined in red_env_constants
-from red_env_constants import *
+from .red_env_constants import *
 
 
 class RedGymMap:
     def __init__(self, env):
-        if env.debug:
-            print("**** RedGymMap ****")
 
         self.env = env
         self.x_pos_org, self.y_pos_org, self.n_map_org = None, None, None
