@@ -95,4 +95,4 @@ progression_order = [
 ]
 name_to_id = {region["name"]: int(region["id"]) for region in map["regions"] if region["id"].isdigit()}
 ESSENTIAL_MAP_LOCATIONS = {name_to_id[name]: idx for idx, name in enumerate(progression_order) if name in name_to_id}
-logging.info(f'ESSENTIAL_MAP_LOCATIONS: {ESSENTIAL_MAP_LOCATIONS}')
+# logging.info(f'ESSENTIAL_MAP_LOCATIONS: {ESSENTIAL_MAP_LOCATIONS}')

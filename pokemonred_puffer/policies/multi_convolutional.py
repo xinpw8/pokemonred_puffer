@@ -118,7 +118,10 @@ class MultiConvolutionalPolicy(nn.Module):
         # image (3, 36, 40)
         # self.image_cnn = NatureCNN(boey_observation_space['image'], features_dim=cnn_output_dim, normalized_image=normalized_image)
         # nature cnn (4, 36, 40), output_dim = 512 cnn_output_dim
+        print(f'boey_observation_space["boey_image"].shape: {boey_observation_space["boey_image"].shape}')
+        print(f'boey_observation_space["boey_image"]: {boey_observation_space["boey_image"]}')
         n_input_channels = boey_observation_space['boey_image'].shape[0]
+        print(f'n_input_channels: {n_input_channels}')
         self.cnn = nn.Sequential(
             nn.Conv2d(n_input_channels, 32*2, kernel_size=8, stride=4, padding=(2, 0)),
             nn.ReLU(),
@@ -132,8 +135,12 @@ class MultiConvolutionalPolicy(nn.Module):
 
         # Compute shape by doing one forward pass
         with th.no_grad():
-            n_flatten = self.cnn(th.as_tensor(boey_observation_space['boey_image'].sample()[None]).float()).shape[1]
+            flatten_boey_observation_space = th.as_tensor(boey_observation_space['boey_image'].sample()[None]).float()
+            n_flatten = self.cnn(flatten_boey_observation_space).shape[1]
+            # n_flatten = self.cnn(th.as_tensor(boey_observation_space['boey_image'].sample()[None]).float()).shape[1]
 
+        print(f'n_flatten LINE140: {n_flatten}')
+        print(f'DID OUR OBS GET SQUISHED?? {boey_observation_space["boey_image"].shape}')
         self.cnn_linear = nn.Sequential(nn.Linear(n_flatten, cnn_output_dim), nn.ReLU())
 
 
@@ -262,10 +269,29 @@ class MultiConvolutionalPolicy(nn.Module):
         
     def encode_observations(self, observations):
         
-        ## Boey observation encoding below
+        observations = observations.type(torch.uint8)  # Undo bad cleanrl cast
+        observations = pufferlib.pytorch.nativize_tensor(observations, self.dtype)
         
-        # img = self.image_cnn(observations['image'])  # (256, )
-        img = self.cnn_linear(self.cnn(observations['boey_image']))  # (512, )
+        # Check if observations is a dictionary or a Tensor
+        if isinstance(observations, dict):
+            boey_image = observations['boey_image']
+        else:
+            raise ValueError("Expected observations to be a dictionary")
+
+        ## Boey observation encoding below
+
+        # Ensure boey_image has 4 dimensions (batch_size, channels, height, width)
+        print(f'observations dict: {observations.keys()}')
+        print(f'observations["boey_image"].shape: {observations["boey_image"].shape}\n.ndim: {observations["boey_image"].ndim}')
+        if boey_image.ndim == 3:
+            boey_image = boey_image.unsqueeze(0)
+        elif boey_image.ndim == 2:
+            boey_image = boey_image.unsqueeze(0).unsqueeze(0)
+
+        # Pass through CNN and linear layers
+        img = self.cnn_linear(self.cnn(boey_image.float()))
+        
+        # img = self.cnn_linear(self.cnn(observations['boey_image']))  # (512, )
         
         # minimap_sprite
         minimap_sprite = observations['boey_minimap_sprite'].to(th.int)  # (9, 10)
@@ -335,15 +361,16 @@ class MultiConvolutionalPolicy(nn.Module):
         map_features = self.map_ids_max_pool(map_features).squeeze(-2)  # (20, 16) -> (16, )
 
         # Raw vector
-        vector = observations['boey_vector']  # (99, )
+        vector = observations['boey_vector']  # reduced to (71, ) with stage manager disabled # (99, )
 
         # Concat all features
         all_features = th.cat([img, minimap, poke_party_head, poke_opp_head, item_features, event_features, vector, map_features], dim=-1)  # (410 + 256, )
 
         ## Boey observation encoding above
         
-        observations = observations.type(torch.uint8)  # Undo bad cleanrl cast
-        observations = pufferlib.pytorch.nativize_tensor(observations, self.dtype)
+        ## Move to above Boey observations
+        # observations = observations.type(torch.uint8)  # Undo bad cleanrl cast
+        # observations = pufferlib.pytorch.nativize_tensor(observations, self.dtype)
 
         screen = observations["screen"]
         visited_mask = observations["visited_mask"]
@@ -403,28 +430,59 @@ class MultiConvolutionalPolicy(nn.Module):
 
         # print(f'Image observation shape: {image_observation.shape}')
         # print(f'Image observation size: {image_observation.size()}')
+        
 
-        return self.encode_linear(
-            torch.cat(
-                (
-                    (self.screen_network(image_observation.float() / 255.0).squeeze(1)),
-                    one_hot(observations["direction"].long(), 4).float().squeeze(1),
-                    # one_hot(observations["battle_type"].long(), 4).float().squeeze(1),
-                    # observations["cut_event"].float(),
-                    observations["cut_in_party"].float(),
-                    observations["surf_in_party"].float(),
-                    observations["strength_in_party"].float(),
-                    map_id.squeeze(1),
-                    # observations["fly_in_party"].float(),
-                    badges.float().squeeze(1),
-                    items.flatten(start_dim=1),
-                    # observations["rival_3"].float(),
-                    # observations["game_corner_rocket"].float(),
-                )
-                + tuple(observations[event].float() for event in REQUIRED_EVENTS)
-                + (all_features, )
-            )
-        ), None
+        # Ensure all tensors are flattened correctly
+        screen_network_output = self.screen_network(image_observation.float() / 255.0).squeeze(1)
+        one_hot_direction = one_hot(observations["direction"].long(), 4).float().squeeze(1)
+        cut_in_party = observations["cut_in_party"].float()
+        surf_in_party = observations["surf_in_party"].float()
+        strength_in_party = observations["strength_in_party"].float()
+        map_id = map_id.squeeze(1)
+        badges = badges.float().squeeze(1)
+        items = items.flatten(start_dim=1)
+        event_features = [observations[event].float() for event in REQUIRED_EVENTS]
+
+        # Concatenate all features for encoding
+        combined_features = torch.cat(
+            [
+                screen_network_output,
+                one_hot_direction,
+                cut_in_party,
+                surf_in_party,
+                strength_in_party,
+                map_id,
+                badges,
+                items,
+                *event_features,
+                all_features
+            ],
+            dim=-1
+        )
+
+        return self.encode_linear(combined_features), None
+
+        # return self.encode_linear(
+        #     torch.cat(
+        #         (
+        #             (self.screen_network(image_observation.float() / 255.0).squeeze(1)),
+        #             one_hot(observations["direction"].long(), 4).float().squeeze(1),
+        #             # one_hot(observations["battle_type"].long(), 4).float().squeeze(1),
+        #             # observations["cut_event"].float(),
+        #             observations["cut_in_party"].float(),
+        #             observations["surf_in_party"].float(),
+        #             observations["strength_in_party"].float(),
+        #             map_id.squeeze(1),
+        #             # observations["fly_in_party"].float(),
+        #             badges.float().squeeze(1),
+        #             items.flatten(start_dim=1),
+        #             # observations["rival_3"].float(),
+        #             # observations["game_corner_rocket"].float(),
+        #         )
+        #         + tuple(observations[event].float() for event in REQUIRED_EVENTS)
+        #         + (all_features, )
+        #     )
+        # ), None
 
     def decode_actions(self, flat_hidden, lookup, concat=None):
         action = self.actor(flat_hidden)

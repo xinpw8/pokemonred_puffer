@@ -102,8 +102,8 @@ from skimage.transform import downscale_local_mean
 # Configure logging
 logging.basicConfig(
     filename="diagnostics.log",  # Name of the log file
-    filemode="a",  # Append to the file
-    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
+    filemode="w",  # Append to the file
+    format="%(message)s",  # Log format
     level=logging.INFO,  # Log level
 )
 
@@ -215,6 +215,11 @@ class RedGymEnv(Env):
             symbols=os.path.join(os.path.dirname(__file__), "pokered.sym"),
         )
         
+        self.wrapped_pyboy = self.pyboy.game_wrapper
+        # logging.info(f'pyboy game wrapper: {self.wrapped_pyboy.game_area_collision()}')
+        # logging.info(f'walkable matrix: {self.wrapped_pyboy._get_screen_walkable_matrix()}')
+        # logging.info(f'screen background tilemap: {self.wrapped_pyboy._get_screen_background_tilemap()}')
+        
         ## Boey special init
         self.boey_step_count = 0
         self.boey_init_caches()
@@ -227,7 +232,7 @@ class RedGymEnv(Env):
         self.boey_previous_level = 0
         self.boey_current_level = 0
         
-        # reinit
+        # Reinit; aware of duplication w/ reset method inits
         self.seen_coords = {}
         self.seen_map_ids = np.zeros(256)
         self.seen_npcs = {}
@@ -238,6 +243,17 @@ class RedGymEnv(Env):
         self.seen_stats_menu = 0
         self.seen_bag_menu = 0
         self.seen_action_bag_menu = 0
+        self.reset_count = 0
+        self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+        self.cut_explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+        self.base_event_flags = sum(
+            self.read_m(i).bit_count()
+            for i in range(EVENT_FLAGS_START, EVENT_FLAGS_START + EVENTS_FLAGS_LENGTH)
+        )
+        self.seen_pokemon = np.zeros(152, dtype=np.uint8)
+        self.caught_pokemon = np.zeros(152, dtype=np.uint8)
+        self.moves_obtained = np.zeros(0xA5, dtype=np.uint8)
+        self.pokecenters = np.zeros(252, dtype=np.uint8)
         
         # events
         self.previous_true_events = {}
@@ -375,7 +391,7 @@ class RedGymEnv(Env):
             'boey_minimap': spaces.Box(low=0, high=1, shape=(14, 9, 10), dtype=np.float32),
             'boey_minimap_sprite': spaces.Box(low=0, high=390, shape=(9, 10), dtype=np.int16),
             'boey_minimap_warp': spaces.Box(low=0, high=830, shape=(9, 10), dtype=np.int16),
-            'boey_vector': spaces.Box(low=-1, high=1, shape=(99,), dtype=np.float32),
+            'boey_vector': spaces.Box(low=-1, high=1, shape=(71,), dtype=np.float32), # (99,) if stage manager
             'boey_map_ids': spaces.Box(low=0, high=255, shape=(10,), dtype=np.uint8),
             'boey_map_step_since': spaces.Box(low=-1, high=1, shape=(10, 1), dtype=np.float32),
             'boey_item_ids': spaces.Box(low=0, high=255, shape=(20,), dtype=np.uint8),
@@ -575,8 +591,8 @@ class RedGymEnv(Env):
 
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
-        # Call boey reset method first
-        self.boey_reset()
+        # Call boey reset property first
+        self.boey_reset
         
         c, r, map_n = self.get_game_coords()  # x, y, map_n
         # rn for EVAL only
@@ -2971,7 +2987,7 @@ class RedGymEnv(Env):
         map_n = self.boey_current_map_id - 1
         coord_string = f"x:{x_pos} y:{y_pos} m:{map_n}"
         if self.boey_special_exploration_scale and map_n in SPECIAL_MAP_IDS and coord_string not in self.boey_perm_seen_coords:
-            # self.seen_coords[coord_string] = self.step_count
+            # self.boey_seen_coords[coord_string] = self.boey_step_count
             self.boey_special_seen_coords_count += 1
         self.boey_seen_coords[coord_string] = self.boey_step_count
         self.boey_perm_seen_coords[coord_string] = self.boey_step_count
@@ -2980,30 +2996,30 @@ class RedGymEnv(Env):
     ## added observations init
     def boey_init_added_observations(self):
         self.boey_agent_stats = []
-        self.base_explore = 0
-        self.max_opponent_level = 0
-        self.max_event_rew = 0
-        self.max_level_rew = 0
-        self.party_level_base = 0
-        self.party_level_post = 0
+        self.boey_base_explore = 0
+        self.boey_max_opponent_level = 0
+        self.boey_max_event_rew = 0
+        self.boey_max_level_rew = 0
+        self.boey_party_level_base = 0
+        self.boey_party_level_post = 0
         self.boey_last_health = 1
         self.boey_last_num_poke = 1
         self.boey_last_num_mon_in_box = 0
-        self.total_healing_rew = 0
-        self.died_count = 0
-        self.prev_knn_rew = 0
-        self.visited_pokecenter_list = []
+        self.boey_total_healing_rew = 0
+        self.boey_died_count = 0
+        self.boey_prev_knn_rew = 0
+        self.boey_visited_pokecenter_list = []
         self.boey_last_10_map_ids = np.zeros((10, 2), dtype=np.float32)
         self.boey_last_10_coords = np.zeros((10, 2), dtype=np.uint8)
-        self.past_events_string = ''
+        self.boey_past_events_string = ''
         self.boey_last_10_event_ids = np.zeros((128, 2), dtype=np.float32)
-        self.early_done = False
-        self.step_count = 0
-        self.past_rewards = np.zeros(10240, dtype=np.float32)
-        self.base_event_flags = self.boey_get_base_event_flags()
+        self.boey_early_done = False
+        self.boey_step_count = 0
+        self.boey_past_rewards = np.zeros(10240, dtype=np.float32)
+        self.boey_base_event_flags = self.boey_get_base_event_flags()
         assert len(self.boey_all_events_string) == 2552, f'len(self.boey_all_events_string): {len(self.boey_all_events_string)}'
-        self.rewarded_events_string = '0' * 2552
-        self.seen_map_dict = {}
+        self.boey_rewarded_events_string = '0' * 2552
+        self.boey_seen_map_dict = {}
         self.boey_update_last_10_map_ids()
         self.boey_update_last_10_coords()
         self.boey_update_seen_map_dict()
@@ -3015,13 +3031,13 @@ class RedGymEnv(Env):
         self._boey_can_use_surf = False
         self._boey_have_pokeflute = False
         self._boey_have_silph_scope = False
-        self.used_cut_coords_dict = {}
+        self.boey_used_cut_coords_dict = {}
         self._boey_last_item_count = 0
         self._boey_is_box_mon_higher_level = False
-        self.secret_switch_states = {}
-        self.hideout_elevator_maps = []
-        self.use_mart_count = 0
-        self.use_pc_swap_count = 0
+        self.boey_secret_switch_states = {}
+        self.boey_hideout_elevator_maps = []
+        self.boey_use_mart_count = 0
+        self.boey_use_pc_swap_count = 0
         
     def boey_env_class_init(self):
 
@@ -3169,14 +3185,14 @@ class RedGymEnv(Env):
     
     def boey_update_reward(self):
         # compute reward
-        # old_prog = self.group_rewards()
+        # old_prog = self.boey_group_rewards()
         self.boey_progress_reward = self.boey_get_game_state_reward()
-        # new_prog = self.group_rewards()
-        new_total = sum([val for _, val in self.boey_progress_reward.items()]) #sqrt(self.explore_reward * self.progress_reward)
+        # new_prog = self.boey_group_rewards()
+        new_total = sum([val for _, val in self.boey_progress_reward.items()]) #sqrt(self.boey_explore_reward * self.boey_progress_reward)
         new_step = new_total - self.boey_total_reward
-        # if new_step < 0 and self.read_hp_fraction() > 0:
-        #     #print(f'\n\nreward went down! {self.progress_reward}\n\n')
-        #     self.save_screenshot('neg_reward')
+        # if new_step < 0 and self.boey_read_hp_fraction() > 0:
+        #     #print(f'\n\nreward went down! {self.boey_progress_reward}\n\n')
+        #     self.boey_save_screenshot('neg_reward')
     
         self.boey_total_reward = new_total
         return new_step
@@ -3203,29 +3219,20 @@ class RedGymEnv(Env):
     #     return _boey_bottom_right_screen_tiles
     
     def get_screen_tilemaps(self):
-        bsm = self.pyboy.botsupport_manager()
-        ((scx, scy), (wx, wy)) = bsm.screen().tilemap_position()
-        tilemap = np.array(bsm.tilemap_background()[:, :])
-        screen_tiles = (np.roll(np.roll(tilemap, -scy // 8, axis=0), -scx // 8, axis=1)[:18, :20] - 0x100)
+        return self.wrapped_pyboy._get_screen_background_tilemap()
 
-        top_left_tiles = screen_tiles[:screen_tiles.shape[0]: 2,::2]
-        bottom_left_tiles = screen_tiles[1: 1 + screen_tiles.shape[0]: 2,::2]
-
-        return top_left_tiles, bottom_left_tiles    
-    
     @property
     def boey_bottom_left_screen_tiles(self):
         if self._boey_bottom_left_screen_tiles is None:
-            screen_tiles = self.get_screen_tilemaps()[1]
+            screen_tiles = self.get_screen_tilemaps()
             self._boey_bottom_left_screen_tiles = screen_tiles[1:1 + screen_tiles.shape[0]:2, ::2] - 256
         return self._boey_bottom_left_screen_tiles
     
     @property
     def boey_bottom_right_screen_tiles(self):
-        screen_tiles = self.get_screen_tilemaps()[1]
+        screen_tiles = self.get_screen_tilemaps()
         _boey_bottom_right_screen_tiles = screen_tiles[1:1 + screen_tiles.shape[0]:2, 1::2] - 256
         return _boey_bottom_right_screen_tiles
-    
     
     def boey_get_minimap_obs(self):
         if self._boey_minimap_obs is None:
@@ -3237,9 +3244,8 @@ class RedGymEnv(Env):
             minimap = np.zeros((6, 9, 10), dtype=np.float32)
             bottom_left_screen_tiles = self.boey_bottom_left_screen_tiles
 
-            # Use the _walk_simple_screen method from RedGymMap
-            self.red_gym_map._update_simple_screen_obs(self.red_gym_map.env.game.map.get_current_location())
-            minimap[0] = self.red_gym_map.simple_screen
+            # Use the _walk_simple_screen method from GameWrapperPokemonGen1
+            minimap[0] = self.wrapped_pyboy._get_screen_walkable_matrix()
 
             tileset_id = self.pyboy.memory[0xd367]
             if tileset_id in [0, 3, 5, 7, 13, 14, 17, 22, 23]:  # 0 overworld, 3 forest, 
@@ -3280,7 +3286,7 @@ class RedGymEnv(Env):
     #         bottom_left_screen_tiles = self.boey_bottom_left_screen_tiles
     #         # walkable
     #         minimap[0] = _walk_simple_screen()
-    #         # minimap[0] = self.wrapper._boey_get_screen_walkable_matrix()
+    #         # minimap[0] = self.wrapped_pyboy._boey_get_screen_walkable_matrix()
     #         tileset_id = self.pyboy.get_memory_value(0xd367)
     #         if tileset_id in [0, 3, 5, 7, 13, 14, 17, 22, 23]:  # 0 overworld, 3 forest, 
     #             # water
@@ -3308,15 +3314,19 @@ class RedGymEnv(Env):
     #         minimap = np.concatenate([minimap, seen_map_obs], axis=0)  # (14, 9, 10)
     #         self._boey_minimap_obs = minimap
     #     return self._boey_minimap_obs
-    
+        
     @property
     def boey_cur_seen_map(self):
         if self._boey_cur_seen_map is None:
             cur_seen_map = np.zeros((9, 10), dtype=np.float32)
             cur_map_id = self.boey_current_map_id - 1
             x, y = self.boey_current_coords
+            
+            # Initialize boey_seen_map_dict entry for cur_map_id if it doesn't exist
             if cur_map_id not in self.boey_seen_map_dict:
-                print(f'\nERROR!!! cur_map_id: {cur_map_id} not in self.seen_map_dict')
+                print(f'\nInitializing boey_seen_map_dict for cur_map_id: {cur_map_id}')
+                self.boey_seen_map_dict[cur_map_id] = np.zeros((MAP_DICT[MAP_ID_REF[cur_map_id]]['height'], MAP_DICT[MAP_ID_REF[cur_map_id]]['width']), dtype=np.float32)
+            
             cur_top_left_x = x - 4
             cur_top_left_y = y - 4
             cur_bottom_right_x = x + 6
@@ -3332,19 +3342,15 @@ class RedGymEnv(Env):
                 adjust_x = -cur_top_left_x
             if cur_top_left_y < 0:
                 adjust_y = -cur_top_left_y
-            # if cur_bottom_right_x > MAP_DICT[MAP_ID_REF[cur_map_id]]['width']:
-            #     adjust_x = MAP_DICT[MAP_ID_REF[cur_map_id]]['width'] - cur_bottom_right_x
-            # if cur_bottom_right_y > MAP_DICT[MAP_ID_REF[cur_map_id]]['height']:
-            #     adjust_y = MAP_DICT[MAP_ID_REF[cur_map_id]]['height'] - cur_bottom_right_y
-
-            cur_seen_map[adjust_y:adjust_y + bottom_right_y - top_left_y, adjust_x:adjust_x + bottom_right_x - top_left_x] = self.seen_map_dict[cur_map_id][top_left_y:bottom_right_y, top_left_x:bottom_right_x]
+            
+            cur_seen_map[adjust_y:adjust_y + bottom_right_y - top_left_y, adjust_x:adjust_x + bottom_right_x - top_left_x] = self.boey_seen_map_dict[cur_map_id][top_left_y:bottom_right_y, top_left_x:bottom_right_x]
             self._boey_cur_seen_map = cur_seen_map
         return self._boey_cur_seen_map
     
     def boey_get_seen_map_obs(self, steps_since=-1):
         cur_seen_map = self.boey_cur_seen_map.copy()
 
-        last_step_count = self.step_count - 1
+        last_step_count = self.boey_step_count - 1
         if steps_since == -1:  # set all seen tiles to 1
             cur_seen_map[cur_seen_map > 0] = 1
         else:
@@ -3362,8 +3368,9 @@ class RedGymEnv(Env):
         # workaround for seen map xy axis bug
         cur_map_id = self.boey_current_map_id - 1
         x, y = self.boey_current_coords
-        if y >= self.seen_map_dict[cur_map_id].shape[0] or x >= self.seen_map_dict[cur_map_id].shape[1]:
-            # print(f'ERROR1z: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), seen_map_dict[cur_map_id].shape: {self.seen_map_dict[cur_map_id].shape}')
+        # logging.info(f'boey_seen_map_dict = {self.boey_seen_map_dict}')
+        if y >= self.boey_seen_map_dict[cur_map_id].shape[0] or x >= self.boey_seen_map_dict[cur_map_id].shape[1]:
+            # print(f'ERROR1z: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), seen_map_dict[cur_map_id].shape: {self.boey_seen_map_dict[cur_map_id].shape}')
             # print(f'ERROR2z: last 10 map ids: {self.boey_last_10_map_ids}')
             return np.zeros((8, 9, 10), dtype=np.float32)
 
@@ -3378,7 +3385,7 @@ class RedGymEnv(Env):
         return np.concatenate([map_10, map_50, map_500, map_5_000, map_50_000, map_500_000, map_5_000_000, map_50_000_000], axis=0) # (8, 9, 10)
     
     def boey_assign_new_sprite_in_sprite_minimap(self, minimap, sprite_id, x, y):
-        x, y = self.current_coords
+        x, y = self.boey_current_coords
         top_left_x = x - 4
         top_left_y = y - 4
         if x >= top_left_x and x < top_left_x + 10 and y >= top_left_y and y < top_left_y + 9:
@@ -3386,9 +3393,9 @@ class RedGymEnv(Env):
     
     @property
     def boey_minimap_sprite(self):
-        if self._minimap_sprite is None:
+        if self._boey_minimap_sprite is None:
             minimap_sprite = np.zeros((9, 10), dtype=np.int16)
-            sprites = self.wrapper._sprites_on_screen()
+            sprites = self.wrapped_pyboy._sprites_on_screen()
             for idx, s in enumerate(sprites):
                 if (idx + 1) % 4 != 0:
                     continue
@@ -3429,23 +3436,23 @@ class RedGymEnv(Env):
                 # secret switch 2: 18, 25
                 self.boey_assign_new_sprite_in_sprite_minimap(minimap_sprite, 383, 20, 3)
                 self.boey_assign_new_sprite_in_sprite_minimap(minimap_sprite, 383, 18, 25)
-            self._minimap_sprite = minimap_sprite
-        return self._minimap_sprite
+            self._boey_minimap_sprite = minimap_sprite
+        return self._boey_minimap_sprite
     
     def boey_get_minimap_sprite_obs(self):
         # minimap_sprite = np.zeros((9, 10), dtype=np.int16)
-        # sprites = self.wrapper._sprites_on_screen()
+        # sprites = self.wrapped_pyboy._sprites_on_screen()
         # for idx, s in enumerate(sprites):
         #     if (idx + 1) % 4 != 0:
         #         continue
         #     minimap_sprite[s.y // 16, s.x // 16] = (s.tiles[0].tile_identifier + 1) / 4
         # return minimap_sprite
-        return self.minimap_sprite
+        return self.boey_minimap_sprite
     
     def boey_get_minimap_warp_obs(self):
         if self._boey_minimap_warp_obs is None:
             minimap_warp = np.zeros((9, 10), dtype=np.int16)
-            # self.current_map_id
+            # self.boey_current_map_id
             cur_map_id = self.boey_current_map_id - 1
             map_name = MAP_ID_REF[cur_map_id]
             if cur_map_id == 255:
@@ -3454,7 +3461,7 @@ class RedGymEnv(Env):
                 return minimap_warp
             # if map_name not in WARP_DICT:
             #     print(f'ERROR: map_name: {map_name} not in MAP_DICT, last 10 map ids: {self.boey_last_10_map_ids}')
-            #     # self.save_all_states(is_failed=True)
+            #     # self.boey_save_all_states(is_failed=True)
             #     # raise ValueError(f'map_name: {map_name} not in MAP_DICT, last 10 map ids: {self.boey_last_10_map_ids}')
             #     return minimap_warp
             warps = WARP_DICT[map_name]
@@ -3522,11 +3529,11 @@ class RedGymEnv(Env):
                     if self.read_m(warp_addr + 0) == y and self.read_m(warp_addr + 1) == x:
                         self._boey_is_warping = hdst_map == 255 or self.read_ram_m(RAM.wCurMap) == hdst_map
                         break
-            # self._is_warping = self.read_bit(0xd736, 2) == 1 and self.read_m(0xFF8B) == self.read_m(0xD35E)
+            # self._boey_is_warping = self.read_bit(0xd736, 2) == 1 and self.read_m(0xFF8B) == self.read_m(0xD35E)
         return self._boey_is_warping
     
     def boey_update_seen_map_dict(self):
-        # if self.get_minimap_warp_obs()[4, 4] != 0:
+        # if self.boey_get_minimap_warp_obs()[4, 4] != 0:
         #     return
         cur_map_id = self.boey_current_map_id - 1
         x, y = self.boey_current_coords
@@ -3542,7 +3549,7 @@ class RedGymEnv(Env):
                     print(f'stucked for > 50 steps, force ES')
                     self.boey_early_done = True
                     self.boey_stuck_cnt = 0
-                # print(f'ERROR2: last 10 map ids: {self.last_10_map_ids}')
+                # print(f'ERROR2: last 10 map ids: {self.boey_last_10_map_ids}')
             else:
                 self.boey_stuck_cnt = 0
                 self.boey_seen_map_dict[cur_map_id][y, x] = self.boey_step_count
@@ -3611,13 +3618,13 @@ class RedGymEnv(Env):
             if badge_count >= 7 and level_reward > self.boey_max_level_rew and not self.boey_is_in_elite_4:
                 level_diff = level_reward - self.boey_max_level_rew
                 if level_diff > 6 and self.boey_party_level_post == 0:
-                    # self.party_level_post = 0
+                    # self.boey_party_level_post = 0
                     pass
                 else:
                     self.boey_party_level_post += level_diff
             self.boey_max_level_rew = max(self.boey_max_level_rew, level_reward)
         return ((self.boey_max_level_rew - self.boey_party_level_post) * 0.5) + (self.boey_party_level_post * 2.0)
-        # return self.max_level_rew * 0.5  # 11/11-3 changed: from 0.5 to 1.0
+        # return self.boey_max_level_rew * 0.5  # 11/11-3 changed: from 0.5 to 1.0
     
     def boey_get_special_key_items_reward(self):
         items = self.boey_get_items_in_bag()
@@ -3637,23 +3644,23 @@ class RedGymEnv(Env):
                     for i in range(ram_map.EVENT_FLAGS_START, ram_map.EVENT_FLAGS_START + ram_map.EVENTS_FLAGS_LENGTH)
                 ]
             )
-            - self.base_event_flags
+            - self.boey_base_event_flags
             - int(ram_map.read_bit(self.pyboy, *ram_map.MUSEUM_TICKET_ADDR)),
             0,
         )
         
     def boey_update_max_event_rew(self):
         cur_rew = self.boey_get_all_events_reward()
-        self.max_event_rew = max(cur_rew, self.max_event_rew)
-        return self.max_event_rew
+        self.boey_max_event_rew = max(cur_rew, self.boey_max_event_rew)
+        return self.boey_max_event_rew
     
     def boey_update_max_op_level(self):
         #opponent_level = ram_map.mem_val(self.pyboy, 0xCFE8) - 5 # base level
         opponent_level = max([ram_map.mem_val(self.pyboy, a) for a in [0xD8C5, 0xD8F1, 0xD91D, 0xD949, 0xD975, 0xD9A1]]) - 5
         #if opponent_level >= 7:
-        #    self.save_screenshot('highlevelop')
-        self.max_opponent_level = max(self.max_opponent_level, opponent_level)
-        return self.max_opponent_level * 0.1  # 0.1
+        #    self.boey_save_screenshot('highlevelop')
+        self.boey_max_opponent_level = max(self.boey_max_opponent_level, opponent_level)
+        return self.boey_max_opponent_level * 0.1  # 0.1
     
     def boey_get_badges_reward(self):
         num_badges = self.boey_get_badges()
@@ -3670,7 +3677,7 @@ class RedGymEnv(Env):
         # return num_badges * 5  # env18v4
 
     def boey_get_last_pokecenter_list(self):
-        pc_list = [0, ] * len(self.pokecenter_ids)
+        pc_list = [0, ] * len(self.boey_pokecenter_ids)
         last_pokecenter_id = self.boey_get_last_pokecenter_id()
         if last_pokecenter_id != -1:
             pc_list[last_pokecenter_id] = 1
@@ -3683,15 +3690,15 @@ class RedGymEnv(Env):
         if last_pokecenter == 0:
             # no pokecenter visited yet
             return -1
-        if last_pokecenter not in self.pokecenter_ids:
+        if last_pokecenter not in self.boey_pokecenter_ids:
             print(f'\nERROR: last_pokecenter: {last_pokecenter} not in pokecenter_ids')
             return -1
         else:
-            return self.pokecenter_ids.index(last_pokecenter)   
+            return self.boey_pokecenter_ids.index(last_pokecenter)   
     
     def boey_get_special_rewards(self):
         rewards = 0
-        rewards += len(self.hideout_elevator_maps) * 2.0
+        rewards += len(self.boey_hideout_elevator_maps) * 2.0
         bag_items = self.boey_get_items_in_bag()
         if 0x2B in bag_items:
             # 6.0 full mansion rewards + 1.0 extra key items rewards
@@ -3716,7 +3723,7 @@ class RedGymEnv(Env):
         return special_cnt * 1.0
     
     def boey_get_used_cut_coords_reward(self):
-        return len(self.used_cut_coords_dict) * 0.2
+        return len(self.boey_used_cut_coords_dict) * 0.2
     
     def boey_get_party_moves(self):
         # first pokemon moves at D173
@@ -3750,7 +3757,7 @@ class RedGymEnv(Env):
     def boey_update_visited_pokecenter_list(self):
         last_pokecenter_id = self.boey_get_last_pokecenter_id()
         if last_pokecenter_id != -1 and last_pokecenter_id not in self.boey_visited_pokecenter_list:
-            self.visited_pokecenter_list.append(last_pokecenter_id)
+            self.boey_visited_pokecenter_list.append(last_pokecenter_id)
 
     def boey_get_visited_pokecenter_reward(self):
         # reward for first time healed in pokecenter
@@ -3766,7 +3773,7 @@ class RedGymEnv(Env):
     
     def boey_get_visited_pokecenter_reward(self):
         # reward for first time healed in pokecenter
-        return len(self.visited_pokecenter_list) * 2     
+        return len(self.boey_visited_pokecenter_list) * 2     
     
     def boey_get_game_state_reward(self, print_stats=False):
         # addresses from https://datacrystal.romhacking.net/wiki/Pok%C3%A9mon_Red/Blue:RAM_map
@@ -3774,15 +3781,15 @@ class RedGymEnv(Env):
         '''
         num_poke = ram_map.mem_val(self.pyboy, 0xD163)
         poke_xps = [self.read_triple(a) for a in [0xD179, 0xD1A5, 0xD1D1, 0xD1FD, 0xD229, 0xD255]]
-        #money = self.read_money() - 975 # subtract starting money
+        #money = self.boey_read_money() - 975 # subtract starting money
         seen_poke_count = sum([self.bit_count(ram_map.mem_val(self.pyboy, i)) for i in range(0xD30A, 0xD31D)])
         all_events_score = sum([self.bit_count(ram_map.mem_val(self.pyboy, i)) for i in range(0xD747, 0xD886)])
         oak_parcel = self.read_bit(0xD74E, 1) 
         oak_pokedex = self.read_bit(0xD74B, 5)
         opponent_level = ram_map.mem_val(self.pyboy, 0xCFF3)
-        self.max_opponent_level = max(self.max_opponent_level, opponent_level)
+        self.boey_max_opponent_level = max(self.boey_max_opponent_level, opponent_level)
         enemy_poke_count = ram_map.mem_val(self.pyboy, 0xD89C)
-        self.max_opponent_poke = max(self.max_opponent_poke, enemy_poke_count)
+        self.boey_max_opponent_poke = max(self.boey_max_opponent_poke, enemy_poke_count)
         
         if print_stats:
             print(f'num_poke : {num_poke}')
@@ -3792,23 +3799,23 @@ class RedGymEnv(Env):
             print(f'seen_poke_count : {seen_poke_count}')
             print(f'oak_parcel: {oak_parcel} oak_pokedex: {oak_pokedex} all_events_score: {all_events_score}')
         '''
-        last_event_rew = self.max_event_rew
-        self.max_event_rew = self.boey_update_max_event_rew()
+        last_event_rew = self.boey_max_event_rew
+        self.boey_max_event_rew = self.boey_update_max_event_rew()
         state_scores = {
-            'event': self.max_event_rew,  
-            #'party_xp': self.reward_scale*0.1*sum(poke_xps),
+            'event': self.boey_max_event_rew,  
+            #'party_xp': self.boey_reward_scale*0.1*sum(poke_xps),
             'level': self.boey_get_levels_reward(), 
-            # 'heal': self.total_healing_rew,
+            # 'heal': self.boey_total_healing_rew,
             'op_lvl': self.boey_update_max_op_level(),
-            # 'dead': -self.get_dead_reward(),
+            # 'dead': -self.boey_get_dead_reward(),
             'badge': self.boey_get_badges_reward(),  # 5
-            #'op_poke':self.max_opponent_poke * 800,
+            #'op_poke':self.boey_max_opponent_poke * 800,
             #'money': money * 3,
-            #'seen_poke': self.reward_scale * seen_poke_count * 400,
-            # 'explore': self.get_knn_reward(last_event_rew),
+            #'seen_poke': self.boey_reward_scale * seen_poke_count * 400,
+            # 'explore': self.boey_get_knn_reward(last_event_rew),
             'visited_pokecenter': self.boey_get_visited_pokecenter_reward(),
             'hm': self.boey_get_hm_rewards(),
-            # 'hm_move': self.get_hm_move_reward(),  # removed this for now
+            # 'hm_move': self.boey_get_hm_move_reward(),  # removed this for now
             'hm_usable': self.boey_get_hm_usable_reward(),
             'trees_cut': self.boey_get_used_cut_coords_reward(),
             'early_done': self.boey_get_early_done_reward(),  # removed
@@ -3843,9 +3850,9 @@ class RedGymEnv(Env):
             return
         else:
             # if self.boey_last_10_map_ids[0][0] != 0:
-            #     print(f'map changed from {MAP_ID_REF[self.boey_last_10_map_ids[0][0] - 1]} to {MAP_ID_REF[current_modified_map_id - 1]} at step {self.step_count}')
+            #     print(f'map changed from {MAP_ID_REF[self.boey_last_10_map_ids[0][0] - 1]} to {MAP_ID_REF[current_modified_map_id - 1]} at step {self.boey_step_count}')
             self.boey_last_10_map_ids = np.roll(self.boey_last_10_map_ids, 1, axis=0)
-            self.boey_last_10_map_ids[0] = [current_modified_map_id, self.step_count]
+            self.boey_last_10_map_ids[0] = [current_modified_map_id, self.boey_step_count]
             map_id = current_modified_map_id - 1
             if map_id in [0x6C, 0xC2, 0xC6, 0x22]:
                 self.boey_minor_patch_victory_road()
@@ -3853,15 +3860,15 @@ class RedGymEnv(Env):
             if map_id not in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
                 if self.boey_last_10_map_ids[1][0] - 1 in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
                     # lost in elite 4
-                    self.elite_4_lost = True
-                    self.elite_4_started_step = None
+                    self.boey_elite_4_lost = True
+                    self.boey_elite_4_started_step = None
             if map_id == 0xF5:
                 # elite four first room
                 # reset elite 4 lost flag
-                if self.elite_4_lost:
-                    self.elite_4_lost = False
-                if self.elite_4_started_step is None:
-                    self.elite_4_started_step = self.step_count
+                if self.boey_elite_4_lost:
+                    self.boey_elite_4_lost = False
+                if self.boey_elite_4_started_step is None:
+                    self.boey_elite_4_started_step = self.boey_step_count
     
     def boey_get_event_rewarded_by_address(self, address, bit):
         # read from rewarded_events_string
@@ -3870,7 +3877,7 @@ class RedGymEnv(Env):
         # bit is reversed
         # string_pos = event_pos * 8 + bit
         string_pos = event_pos * 8 + (7 - bit)
-        return self.rewarded_events_string[string_pos] == '1'
+        return self.boey_rewarded_events_string[string_pos] == '1'
     
     def boey_init_caches(self):
         # for cached properties
@@ -3899,13 +3906,13 @@ class RedGymEnv(Env):
         return -1
     
     # def update_past_events(self):
-    #     if self.past_events_string and self.past_events_string != self.all_events_string:
-    #         first_diff_index = self.get_first_diff_index(self.past_events_string, self.all_events_string)
-    #         assert len(self.all_events_string) == len(self.past_events_string), f'len(self.all_events_string): {len(self.all_events_string)}, len(self.past_events_string): {len(self.past_events_string)}'
+    #     if self.boey_past_events_string and self.boey_past_events_string != self.boey_all_events_string:
+    #         first_diff_index = self.boey_get_first_diff_index(self.boey_past_events_string, self.boey_all_events_string)
+    #         assert len(self.boey_all_events_string) == len(self.boey_past_events_string), f'len(self.boey_all_events_string): {len(self.boey_all_events_string)}, len(self.boey_past_events_string): {len(self.boey_past_events_string)}'
     #         if first_diff_index != -1:
     #             self.boey_last_10_event_ids = np.roll(self.boey_last_10_event_ids, 1, axis=0)
-    #             self.boey_last_10_event_ids[0] = [first_diff_index, self.step_count]
-    #             print(f'new event at step {self.step_count}, event: {self.boey_last_10_event_ids[0]}')
+    #             self.boey_last_10_event_ids[0] = [first_diff_index, self.boey_step_count]
+    #             print(f'new event at step {self.boey_step_count}, event: {self.boey_last_10_event_ids[0]}')
     
     def boey_is_in_start_menu(self) -> bool:
         menu_check_dict = {
@@ -3951,7 +3958,7 @@ class RedGymEnv(Env):
                 current_menu_item = self.read_m(0xCC26)
                 if current_menu_item not in [1, 2]:
                     print(f'\nWarning! current start menu item: {current_menu_item}, not 1 or 2')
-                    # self.save_screenshot('start_menu_item_not_1_or_2')
+                    # self.boey_save_screenshot('start_menu_item_not_1_or_2')
                     # do nothing, return action
                     return action
                 if action < 4:
@@ -3977,7 +3984,7 @@ class RedGymEnv(Env):
                     self._boey_have_hm01 = 0xc4 in self.boey_get_items_in_bag()
                 if self._boey_have_hm01:
                     self._boey_can_use_cut = True
-            # self._can_use_cut = self._cut_badge is True and 0xc4 in self.get_items_in_bag()
+            # self._boey_can_use_cut = self._boey_cut_badge is True and 0xc4 in self.boey_get_items_in_bag()
         return self._boey_can_use_cut
     
     @property
@@ -4078,7 +4085,7 @@ class RedGymEnv(Env):
         #opponent_level = self.read_m(0xCFE8) - 5 # base level
         opponent_level = max([self.read_m(a) for a in [0xD8C5, 0xD8F1, 0xD91D, 0xD949, 0xD975, 0xD9A1]]) - 5
         #if opponent_level >= 7:
-        #    self.save_screenshot('highlevelop')
+        #    self.boey_save_screenshot('highlevelop')
         self.boey_max_opponent_level = max(self.boey_max_opponent_level, opponent_level)
         return self.boey_max_opponent_level * 0.1  # 0.1
     
@@ -4117,10 +4124,10 @@ class RedGymEnv(Env):
         return self.boey_battle_type == 1
     
     def boey_update_max_event_rew(self):
-        if self.boey_all_events_string != self.past_events_string:
+        if self.boey_all_events_string != self.boey_past_events_string:
             cur_rew = self.boey_get_all_events_reward()
-            self.max_event_rew = max(cur_rew, self.max_event_rew)
-        return self.max_event_rew
+            self.boey_max_event_rew = max(cur_rew, self.boey_max_event_rew)
+        return self.boey_max_event_rew
     
     def boey_is_in_battle(self):
         # D057
@@ -4223,7 +4230,7 @@ class RedGymEnv(Env):
             return min(1.0, cnt / max_n)
     
     def boey_get_badges_obs(self):
-        return self.boey_multi_hot_encoding(self.get_badges(), 12)
+        return self.boey_multi_hot_encoding(self.boey_get_badges(), 12)
 
     def boey_get_money_obs(self):
         return [self.boey_scaled_encoding(self.boey_read_money(), 100_000)]
@@ -4250,7 +4257,7 @@ class RedGymEnv(Env):
     #             print(f'\nsomething went wrong, chosen_mon is 0')
     #         else:
     #             # print(f'chose mon {chosen_mon}')
-    #             return self.one_hot_encoding(chosen_mon - 1, 6, start_zero=True)
+    #             return self.boey_one_hot_encoding(chosen_mon - 1, 6, start_zero=True)
     #     return [0] * 6
    
     def boey_get_hm_rewards(self):
@@ -4268,7 +4275,7 @@ class RedGymEnv(Env):
 
     def boey_get_visited_pokecenter_obs(self):
         result = [0] * len(self.boey_pokecenter_ids)
-        for i in self.visited_pokecenter_list:
+        for i in self.boey_visited_pokecenter_list:
             result[i] = 1
         return result
     
@@ -4276,7 +4283,7 @@ class RedGymEnv(Env):
         # workaround for hm moves
         # hm_moves = [0x0f, 0x13, 0x39, 0x46, 0x94]
         # result = [0] * len(hm_moves)
-        # all_moves = self.get_party_moves()
+        # all_moves = self.boey_get_party_moves()
         # for i, hm_move in enumerate(hm_moves):
         #     if hm_move in all_moves:
         #         result[i] = 1
@@ -4306,14 +4313,14 @@ class RedGymEnv(Env):
         return result
     
     def boey_get_items_obs(self):
-        # items from self.get_items_in_bag()
+        # items from self.boey_get_items_in_bag()
         # add 0s to make it 20 items
         items = self.boey_get_items_in_bag(one_indexed=1)
         items.extend([0] * (20 - len(items)))
         return items
 
     def boey_get_items_quantity_obs(self):
-        # items from self.get_items_quantity_in_bag()
+        # items from self.boey_get_items_quantity_in_bag()
         # add 0s to make it 20 items
         items = self.boey_get_items_quantity_in_bag()
         items = self.boey_scaled_encoding(items, 20)
@@ -4329,7 +4336,7 @@ class RedGymEnv(Env):
     
     def boey_get_last_10_map_step_since_obs(self):
         step_gotten = self.boey_last_10_map_ids[:, 1]
-        step_since = self.step_count - step_gotten
+        step_since = self.boey_step_count - step_gotten
         return self.boey_scaled_encoding(step_since, 5000).reshape(-1, 1)
     
     def boey_get_last_10_coords_obs(self):
@@ -4446,9 +4453,9 @@ class RedGymEnv(Env):
     
     # def get_all_move_pps_obs(self):
     #     result = []
-    #     result.extend(self.get_party_move_pps_obs())
-    #     result.extend(self.get_opp_move_pps_obs())
-    #     result.extend(self.get_battle_move_pps_obs())
+    #     result.extend(self.boey_get_party_move_pps_obs())
+    #     result.extend(self.boey_get_opp_move_pps_obs())
+    #     result.extend(self.boey_get_battle_move_pps_obs())
     #     result = np.array(result, dtype=np.float32) / 30
     #     # every elemenet max is 1
     #     result = np.clip(result, 0, 1)
@@ -4496,8 +4503,8 @@ class RedGymEnv(Env):
         # next pokemon will be + 44
         result = []
         for i in range(0, 44*6, 44):
-            hp = self.read_hp(0xD16C + i)
-            max_hp = self.read_hp(0xD18D + i)
+            hp = self.boey_read_hp(0xD16C + i)
+            max_hp = self.boey_read_hp(0xD18D + i)
             result.extend([hp, max_hp])
         return result
 
@@ -4506,8 +4513,8 @@ class RedGymEnv(Env):
         # next pokemon will be + 44
         result = []
         for i in range(0, 44*6, 44):
-            hp = self.read_hp(0xD8A5 + i)
-            max_hp = self.read_hp(0xD8C6 + i)
+            hp = self.boey_read_hp(0xD8A5 + i)
+            max_hp = self.boey_read_hp(0xD8C6 + i)
             result.extend([hp, max_hp])
         return result
     
@@ -4516,15 +4523,15 @@ class RedGymEnv(Env):
         # second pokemon starts from CFFC
         result = []
         for addr in [0xCFE6, 0xCFF4, 0xCFFC, 0xD00A]:
-            hp = self.read_hp(addr)
+            hp = self.boey_read_hp(addr)
             result.append(hp)
         return result
     
     def get_all_hp_obs(self):
         result = []
-        result.extend(self.get_party_hp_obs())
-        result.extend(self.get_opp_hp_obs())
-        result.extend(self.get_battle_hp_obs())
+        result.extend(self.boey_get_party_hp_obs())
+        result.extend(self.boey_get_opp_hp_obs())
+        result.extend(self.boey_get_battle_hp_obs())
         result = np.array(result, dtype=np.float32)
         # every elemenet max is 1
         result = np.clip(result, 0, 600) / 600
@@ -4567,34 +4574,34 @@ class RedGymEnv(Env):
     #     reward_steps = [2500, 5000, 7500, 10000]
     #     result = []
     #     for step in reward_steps:
-    #         if self.step_count > step:
-    #             result.append(1 if self.past_rewards[step-1] - self.past_rewards[0] < 1 else 0)
+    #         if self.boey_step_count > step:
+    #             result.append(1 if self.boey_past_rewards[step-1] - self.boey_past_rewards[0] < 1 else 0)
     #         else:
     #             result.append(0)
     #     return result
 
     # def get_vector_raw_obs(self):
     #     obs = []
-    #     obs.extend(self.get_badges_obs())
-    #     obs.extend(self.get_money_obs())
-    #     obs.extend(self.get_last_pokecenter_obs())
-    #     obs.extend(self.get_visited_pokecenter_obs())
-    #     obs.extend(self.get_hm_move_obs())
-    #     obs.extend(self.get_hm_obs())
-    #     # obs.extend(self.get_items_obs())
-    #     obs.extend(self.get_items_quantity_obs())
-    #     obs.extend(self.get_bag_full_obs())
-    #     # obs.extend(self.get_last_10_map_ids_obs())
-    #     obs.extend(self.get_last_10_coords_obs())
+    #     obs.extend(self.boey_get_badges_obs())
+    #     obs.extend(self.boey_get_money_obs())
+    #     obs.extend(self.boey_get_last_pokecenter_obs())
+    #     obs.extend(self.boey_get_visited_pokecenter_obs())
+    #     obs.extend(self.boey_get_hm_move_obs())
+    #     obs.extend(self.boey_get_hm_obs())
+    #     # obs.extend(self.boey_get_items_obs())
+    #     obs.extend(self.boey_get_items_quantity_obs())
+    #     obs.extend(self.boey_get_bag_full_obs())
+    #     # obs.extend(self.boey_get_last_10_map_ids_obs())
+    #     obs.extend(self.boey_get_last_10_coords_obs())
 
-    #     obs.extend(self.get_all_move_pps_obs())
-    #     obs.extend(self.get_all_level_obs())
-    #     obs.extend(self.get_all_hp_obs())
-    #     obs.extend(self.get_all_hp_pct_obs())
-    #     obs.extend(self.get_all_pokemon_dead_obs())
-    #     obs.extend(self.get_battle_status_obs())
-    #     # obs.extend(self.get_swap_pokemon_obs())
-    #     obs.extend(self.get_reward_check_obs())
+    #     obs.extend(self.boey_get_all_move_pps_obs())
+    #     obs.extend(self.boey_get_all_level_obs())
+    #     obs.extend(self.boey_get_all_hp_obs())
+    #     obs.extend(self.boey_get_all_hp_pct_obs())
+    #     obs.extend(self.boey_get_all_pokemon_dead_obs())
+    #     obs.extend(self.boey_get_battle_status_obs())
+    #     # obs.extend(self.boey_get_swap_pokemon_obs())
+    #     obs.extend(self.boey_get_reward_check_obs())
     #     obs = np.array(obs, dtype=np.float32)
     #     obs = np.clip(obs, 0, 1)
     #     obs = obs * 255
@@ -4625,7 +4632,7 @@ class RedGymEnv(Env):
         if pokemon_count > 6:
             print(f'invalid pokemon count: {pokemon_count}')
             pokemon_count = 6
-            self.debug_save()
+            self.boey_debug_save()
         for i in range(pokemon_count):
             # 2 types per pokemon
             ptypes = self.boey_get_pokemon_types(party_type_addr + i * 44)
@@ -4633,14 +4640,14 @@ class RedGymEnv(Env):
         remaining_pokemon = 6 - pokemon_count
         for i in range(remaining_pokemon):
             result.append([0, 0])
-        if self.is_in_battle():
+        if self.boey_is_in_battle():
             # zero padding if not in battle, reduce dimension
             if not self.boey_is_wild_battle():
                 pokemon_count = self.boey_read_opp_pokemon_num()
                 if pokemon_count > 6:
                     print(f'invalid opp_pokemon count: {pokemon_count}')
                     pokemon_count = 6
-                    self.debug_save()
+                    self.boey_debug_save()
                 for i in range(pokemon_count):
                     # 2 types per pokemon
                     ptypes = self.boey_get_pokemon_types(enemy_type_addr + i * 44)
@@ -4688,22 +4695,22 @@ class RedGymEnv(Env):
         level = self.boey_scaled_encoding(self.read_m(start_addr + 33), 100)
         result.append(level)
         # hp
-        hp = self.boey_scaled_encoding(self.read_double(start_addr + 1), 250)
+        hp = self.boey_scaled_encoding(self.boey_read_double(start_addr + 1), 250)
         result.append(hp)
         # max hp
-        max_hp = self.boey_scaled_encoding(self.read_double(start_addr + 34), 250)
+        max_hp = self.boey_scaled_encoding(self.boey_read_double(start_addr + 34), 250)
         result.append(max_hp)
         # attack
-        attack = self.boey_scaled_encoding(self.read_double(start_addr + 36), 134)
+        attack = self.boey_scaled_encoding(self.boey_read_double(start_addr + 36), 134)
         result.append(attack)
         # defense
-        defense = self.boey_scaled_encoding(self.read_double(start_addr + 38), 180)
+        defense = self.boey_scaled_encoding(self.boey_read_double(start_addr + 38), 180)
         result.append(defense)
         # speed
-        speed = self.boey_scaled_encoding(self.read_double(start_addr + 40), 140)
+        speed = self.boey_scaled_encoding(self.boey_read_double(start_addr + 40), 140)
         result.append(speed)
         # special
-        special = self.boey_scaled_encoding(self.read_double(start_addr + 42), 154)
+        special = self.boey_scaled_encoding(self.boey_read_double(start_addr + 42), 154)
         result.append(special)
         # is alive
         is_alive = 1 if hp > 0 else 0
@@ -4739,12 +4746,12 @@ class RedGymEnv(Env):
     def boey_get_party_pokemon_obs(self):
         # 6 party pokemons start from D16B
         # 2d array, 6 pokemons, N features
-        result = np.zeros((6, self.n_pokemon_features), dtype=np.float32)
+        result = np.zeros((6, self.boey_n_pokemon_features), dtype=np.float32)
         pokemon_count = self.boey_read_num_poke()
         for i in range(pokemon_count):
             result[i] = self.boey_get_one_pokemon_obs(0xD16B + i * 44, 0, i)
         for i in range(pokemon_count, 6):
-            result[i] = np.zeros(self.n_pokemon_features, dtype=np.float32)
+            result[i] = np.zeros(self.boey_n_pokemon_features, dtype=np.float32)
         return result
 
     def boey_read_opp_pokemon_num(self):
@@ -4760,22 +4767,22 @@ class RedGymEnv(Env):
         level = self.boey_scaled_encoding(self.read_m(start_addr + 14), 100)
         result.append(level)
         # hp
-        hp = self.boey_scaled_encoding(self.read_double(start_addr + 1), 250)
+        hp = self.boey_scaled_encoding(self.boey_read_double(start_addr + 1), 250)
         result.append(hp)
         # max hp
-        max_hp = self.boey_scaled_encoding(self.read_double(start_addr + 15), 250)
+        max_hp = self.boey_scaled_encoding(self.boey_read_double(start_addr + 15), 250)
         result.append(max_hp)
         # attack
-        attack = self.boey_scaled_encoding(self.read_double(start_addr + 17), 134)
+        attack = self.boey_scaled_encoding(self.boey_read_double(start_addr + 17), 134)
         result.append(attack)
         # defense
-        defense = self.boey_scaled_encoding(self.read_double(start_addr + 19), 180)
+        defense = self.boey_scaled_encoding(self.boey_read_double(start_addr + 19), 180)
         result.append(defense)
         # speed
-        speed = self.boey_scaled_encoding(self.read_double(start_addr + 21), 140)
+        speed = self.boey_scaled_encoding(self.boey_read_double(start_addr + 21), 140)
         result.append(speed)
         # special
-        special = self.boey_scaled_encoding(self.read_double(start_addr + 23), 154)
+        special = self.boey_scaled_encoding(self.boey_read_double(start_addr + 23), 154)
         result.append(special)
         # is alive
         is_alive = 1 if hp > 0 else 0
@@ -4793,7 +4800,7 @@ class RedGymEnv(Env):
     
     def get_wild_pokemon_obs(self):
         start_addr = 0xCFE5
-        return self.get_battle_base_pokemon_obs(start_addr, team=1)
+        return self.boey_get_battle_base_pokemon_obs(start_addr, team=1)
 
     def boey_get_opp_pokemon_obs(self):
         # 6 enemy pokemons start from D8A4
@@ -4810,14 +4817,14 @@ class RedGymEnv(Env):
                         result.append(self.boey_get_one_pokemon_obs(0xD8A4 + i * 44, 1, i))
                 remaining_pokemon = 6 - pokemon_count
                 for i in range(remaining_pokemon):
-                    result.append([0] * self.n_pokemon_features)
+                    result.append([0] * self.boey_n_pokemon_features)
             else:
                 # wild battle, take the battle pokemon
                 result.append(self.boey_get_wild_pokemon_obs())
                 for i in range(5):
-                    result.append([0] * self.n_pokemon_features)
+                    result.append([0] * self.boey_n_pokemon_features)
         else:
-            return np.zeros((6, self.n_pokemon_features), dtype=np.float32)
+            return np.zeros((6, self.boey_n_pokemon_features), dtype=np.float32)
         result = np.array(result, dtype=np.float32)
         return result
     
@@ -4949,9 +4956,9 @@ class RedGymEnv(Env):
         # 2d array, 6 pokemons, 8 features
         # features: pp, have pp
         result = np.zeros((6, 4, 2), dtype=np.float32)
-        if self.is_in_battle():
-            if not self.is_wild_battle():
-                pokemon_count = self.read_opp_pokemon_num()
+        if self.boey_is_in_battle():
+            if not self.boey_is_wild_battle():
+                pokemon_count = self.boey_read_opp_pokemon_num()
                 for i in range(pokemon_count):
                     result[i] = self.boey_get_one_pokemon_move_pps_obs(0xD8C1 + (i * 44))
                 for i in range(pokemon_count, 6):
@@ -4985,7 +4992,7 @@ class RedGymEnv(Env):
     
     def boey_get_all_event_step_since_obs(self):
         step_gotten = self.boey_last_10_event_ids[:, 1]  # shape (10,)
-        step_since = self.step_count - step_gotten
+        step_since = self.boey_step_count - step_gotten
         # step_count - step_since and boey_scaled_encoding
         return self.boey_scaled_encoding(step_since, 10000).reshape(-1, 1)  # shape (10,)
     
@@ -5009,22 +5016,22 @@ class RedGymEnv(Env):
         return [self.boey_scaled_encoding(coord[0], max_x), self.boey_scaled_encoding(coord[1], max_y)]
     
     def boey_get_num_turn_in_battle_obs(self):
-        if self.is_in_battle:
+        if self.boey_is_in_battle:
             return self.boey_scaled_encoding(self.read_m(0xCCD5), 30)
         else:
             return 0
         
-    def boey_get_stage_obs(self):
-        # set stage obs to 14 for now
-        if not self.enable_stage_manager:
-            return np.zeros(28, dtype=np.uint8)
-        # self.stage_manager.n_stage_started : int
-        # self.stage_manager.n_stage_ended : int
-        # 28 elements, 14 n_stage_started, 14 n_stage_ended
-        result = np.zeros(28, dtype=np.uint8)
-        result[:self.stage_manager.n_stage_started] = 1
-        result[14:14+self.stage_manager.n_stage_ended] = 1
-        return result  # shape (28,)
+    # def boey_get_stage_obs(self):
+    #     # set stage obs to 14 for now
+    #     if not self.boey_enable_stage_manager:
+    #         return np.zeros(28, dtype=np.uint8)
+    #     # self.boey_stage_manager.n_stage_started : int
+    #     # self.boey_stage_manager.n_stage_ended : int
+    #     # 28 elements, 14 n_stage_started, 14 n_stage_ended
+    #     result = np.zeros(28, dtype=np.uint8)
+    #     result[:self.boey_stage_manager.n_stage_started] = 1
+    #     result[14:14+self.boey_stage_manager.n_stage_ended] = 1
+    #     return result  # shape (28,)
     
     def boey_get_all_raw_obs(self):
         obs = []
@@ -5042,15 +5049,15 @@ class RedGymEnv(Env):
         obs.extend(self.boey_get_bag_full_obs())  # bag full
         obs.extend(self.boey_get_last_coords_obs())  # last coords x, y
         obs.extend([self.boey_get_num_turn_in_battle_obs()])  # num turn in battle
-        obs.extend(self.boey_get_stage_obs())  # stage manager
+        # obs.extend(self.boey_get_stage_obs())  # stage manager
         obs.extend(self.boey_get_level_manager_obs())  # level manager
         obs.extend(self.boey_get_is_box_mon_higher_level_obs())  # is box mon higher level
-        # obs.extend(self.get_reward_check_obs())  # reward check
+        # obs.extend(self.boey_get_reward_check_obs())  # reward check
         return np.array(obs, dtype=np.float32)
     
     def boey_get_level_manager_obs(self):
-        # self.current_level by one hot encoding
-        return self.one_hot_encoding(self.current_level, 10)
+        # self.boey_current_level by one hot encoding
+        return self.boey_one_hot_encoding(self.boey_current_level, 10)
     
     @property
     def boey_is_box_mon_higher_level(self):
@@ -5058,10 +5065,10 @@ class RedGymEnv(Env):
         if self.boey_last_num_mon_in_box == 0:
             return False
         
-        if self.boey_last_num_mon_in_box == self.num_mon_in_box:
-            return self._is_box_mon_higher_level
+        if self.boey_last_num_mon_in_box == self.boey_num_mon_in_box:
+            return self._boey_is_box_mon_higher_level
         
-        self._is_box_mon_higher_level = False
+        self._boey_is_box_mon_higher_level = False
         # check if there is any pokemon in box with higher level than the lowest level pokemon in party
         party_count = self.boey_read_num_poke()
         if party_count < 6:
@@ -5074,12 +5081,12 @@ class RedGymEnv(Env):
         box_levels = [self.read_m(box_mon_addr_start + i * 33 + 3) for i in range(num_mon_in_box)]
         highest_box_level = max(box_levels) if box_levels else 0
         if highest_box_level > lowest_party_level:
-            self._is_box_mon_higher_level = True
-        # self.boey_last_num_mon_in_box = self.num_mon_in_box  # this is updated in step()
-        return self._is_box_mon_higher_level
+            self._boey_is_box_mon_higher_level = True
+        # self.boey_last_num_mon_in_box = self.boey_num_mon_in_box  # this is updated in step()
+        return self._boey_is_box_mon_higher_level
     
     def boey_get_is_box_mon_higher_level_obs(self):
-        return np.array([self.is_box_mon_higher_level], dtype=np.float32)
+        return np.array([self.boey_is_box_mon_higher_level], dtype=np.float32)
 
     def boey_get_last_map_id_obs(self):
         return np.array([self.boey_last_10_map_ids[0]], dtype=np.uint8)
@@ -5095,8 +5102,9 @@ class RedGymEnv(Env):
     def boey_get_in_battle_mask_obs(self):
         return np.array([self.boey_is_in_battle()], dtype=np.float32)
     
+    @property
     def boey_reset(self, seed=None, options=None):
-        self.boey_seed = seed
+        # self.boey_seed = seed
         
         # if self.boey_use_screen_explore:
         #     self.boey_init_knn()
@@ -5343,30 +5351,30 @@ class RedGymEnv(Env):
             # if self.boey_enable_stage_manager:
             #     self.boey_stage_manager = StageManager()
             self.boey_stage_manager = False
-            # self._replace_ss_ticket_w_
+            # self._boey_replace_ss_ticket_w_
             self.boey_progress_reward = self.boey_get_game_state_reward()
             self.boey_total_reward = sum([val for _, val in self.boey_progress_reward.items()])
             self.boey_reset_count += 1
         self.boey_early_done = False
         
         if self.boey_save_video:
-            base_dir = self.s_path / Path('rollouts')
+            base_dir = self.boey_s_path / Path('rollouts')
             base_dir.mkdir(exist_ok=True)
             full_name = Path(f'full_reset_{self.boey_reset_count}_id{self.boey_instance_id}').with_suffix('.mp4')
-            # model_name = Path(f'model_reset_{self.reset_count}_id{self.instance_id}').with_suffix('.mp4')
+            # model_name = Path(f'model_reset_{self.boey_reset_count}_id{self.boey_instance_id}').with_suffix('.mp4')
             self.boey_full_frame_writer = media.VideoWriter(base_dir / full_name, (144, 160), fps=60)
             self.boey_full_frame_writer.__enter__()
             self.boey_full_frame_write_full_path = base_dir / full_name
-            # self.model_frame_writer = media.VideoWriter(base_dir / model_name, self.output_full[:2], fps=60)
-            # self.model_frame_writer.__enter__()
+            # self.boey_model_frame_writer = media.VideoWriter(base_dir / model_name, self.boey_output_full[:2], fps=60)
+            # self.boey_model_frame_writer.__enter__()
        
-        return self.render(), {}   
+        # return self.render(), {}   
     
     def boey_get_highest_reward_state_dir_based_on_reset_count(self, dirs_given, weightage=0.01):
         '''
         path_given is all_state_dirs
-        all_state_dirs is self.start_from_state_dir.glob('*')
-        state folders name as such '{self.total_reward:5.2f}_{session_id}_{self.instance_id}_{self.reset_count}'
+        all_state_dirs is self.boey_start_from_state_dir.glob('*')
+        state folders name as such '{self.boey_total_reward:5.2f}_{session_id}_{self.boey_instance_id}_{self.boey_reset_count}'
         return the state folder with highest total_reward divided by reset_count.
         '''
         if not dirs_given:
@@ -5382,7 +5390,7 @@ class RedGymEnv(Env):
         return self.boey_save_all_states(is_failed=is_failed)
     
     def boey_save_all_states(self, is_failed=False):
-        # STATES_TO_SAVE_LOAD = ['recent_frames', 'agent_stats', 'base_explore', 'max_opponent_level', 'max_event_rew', 'max_level_rew', 'last_health', 'last_num_poke', 'last_num_mon_in_box', 'total_healing_rew', 'died_count', 'prev_knn_rew', 'visited_pokecenter_list', 'last_10_map_ids', 'last_10_coords', 'past_events_string', 'last_10_event_ids', 'early_done', 'step_count', 'past_rewards', 'base_event_flags', 'rewarded_events_string', 'seen_map_dict', '_cut_badge', '_have_hm01', '_can_use_cut', '_surf_badge', '_have_hm03', '_can_use_surf', '_have_pokeflute', '_have_silph_scope', 'used_cut_coords_dict', '_last_item_count', '_is_box_mon_higher_level', 'hideout_elevator_maps', 'use_mart_count', 'use_pc_swap_count']
+        # STATES_TO_SAVE_LOAD = ['recent_frames', 'agent_stats', 'base_explore', 'max_opponent_level', 'max_event_rew', 'max_level_rew', 'last_health', 'last_num_poke', 'last_num_mon_in_box', 'total_healing_rew', 'died_count', 'prev_knn_rew', 'visited_pokecenter_list', 'last_10_map_ids', 'last_10_coords', 'past_events_string', 'last_10_event_ids', 'early_done', 'step_count', 'past_rewards', 'base_event_flags', 'rewarded_events_string', 'boey_seen_map_dict', '_cut_badge', '_have_hm01', '_can_use_cut', '_surf_badge', '_have_hm03', '_can_use_surf', '_have_pokeflute', '_have_silph_scope', 'used_cut_coords_dict', '_last_item_count', '_is_box_mon_higher_level', 'hideout_elevator_maps', 'use_mart_count', 'use_pc_swap_count']
         # pyboy state file, 
         # state pkl file, 
         if not self.boey_save_state_dir:
@@ -5404,8 +5412,8 @@ class RedGymEnv(Env):
         datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         state_dir = state_dir / Path(f'{datetime_str}_{self.boey_step_count}_{self.boey_total_reward:5.2f}')
         state_dir.mkdir(exist_ok=True)
-        # state pkl file all the required variables defined in self.boey_reset()
-        # recent_frames, agent_stats, base_explore, max_opponent_level, max_event_rew, max_level_rew, last_health, last_num_poke, last_num_mon_in_box, total_healing_rew, died_count, prev_knn_rew, visited_pokecenter_list, last_10_map_ids, last_10_coords, past_events_string, last_10_event_ids, early_done, step_count, past_rewards, base_event_flags, rewarded_events_string, seen_map_dict, _cut_badge, _have_hm01, _can_use_cut, _surf_badge, _have_hm03, _can_use_surf, _have_pokeflute, _have_silph_scope, used_cut_coords_dict, _last_item_count, _is_box_mon_higher_level, hideout_elevator_maps, use_mart_count, use_pc_swap_count
+        # state pkl file all the required variables defined in self.boey_reset
+        # recent_frames, agent_stats, base_explore, max_opponent_level, max_event_rew, max_level_rew, last_health, last_num_poke, last_num_mon_in_box, total_healing_rew, died_count, prev_knn_rew, visited_pokecenter_list, last_10_map_ids, last_10_coords, past_events_string, last_10_event_ids, early_done, step_count, past_rewards, base_event_flags, rewarded_events_string, boey_seen_map_dict, _cut_badge, _have_hm01, _can_use_cut, _surf_badge, _have_hm03, _can_use_surf, _have_pokeflute, _have_silph_scope, used_cut_coords_dict, _last_item_count, _is_box_mon_higher_level, hideout_elevator_maps, use_mart_count, use_pc_swap_count
         with open(state_dir / Path('state.pkl'), 'wb') as f:
             state = {key: getattr(self, key) for key in STATES_TO_SAVE_LOAD}
             if self.boey_enable_stage_manager:
