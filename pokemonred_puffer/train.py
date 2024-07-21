@@ -300,30 +300,27 @@
 #     else:
 #         raise ValueError("Mode must be one of train or evaluate")
 
-
 import argparse
-import functools
 import importlib
-import os
-import sys
 from multiprocessing import Queue
+import pathlib
+import sys
+import time
 from types import ModuleType
 from typing import Any, Callable
-import uuid
 
-import pufferlib
-import pufferlib.emulation
-import pufferlib.frameworks.cleanrl
-import pufferlib.postprocess
-import pufferlib.utils
-import pufferlib.vector
+import gymnasium as gym
+import torch
+import wandb
 import yaml
 
-import wandb
-from pokemonred_puffer import cleanrl_puffer
-from pokemonred_puffer.cleanrl_puffer import CleanPuffeRL
+import pufferlib
+import pufferlib.utils
+from pokemonred_puffer.cleanrl_puffer import CleanPuffeRL, rollout
 from pokemonred_puffer.environment import RedGymEnv
 from pokemonred_puffer.wrappers.async_io import AsyncWrapper
+import uuid
+from functools import partial
 
 ## Modified make_policy to include Boey observations
 def make_policy(env, policy_name, args):

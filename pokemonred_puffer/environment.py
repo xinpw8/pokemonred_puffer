@@ -5207,7 +5207,8 @@ class RedGymEnv(Env):
                     # select level based on chance with np.random.choice
                     # if no stats, equal chance to select any level
                     self.boey_level_in_charge = np.random.choice(explored_levels, p=level_selection_chance_list)
-                    print(f'env_id: {self.env_id}, level: {self.boey_level_in_charge}, assist_env chance: {[f"{level}: {level_selection_chance_list[level]:.2f}" for level in range(explored_levels)]}')
+                    # print(f'env_id: {self.env_id}, level: {self.boey_level_in_charge}, assist_env chance: {[f"{level}: {level_selection_chance_list[level]:.2f}" for level in range(explored_levels)]}')
+                    print(f'env_id: {self.env_id}, initializing... {"|" * self.env_id}')
 
             self.boey_current_level = self.boey_level_in_charge
             # self.boey_current_level = 5
@@ -5287,7 +5288,10 @@ class RedGymEnv(Env):
                 print(f'env_id: {self.env_id}, load state {state_dir}, level: {self.boey_current_level}')
                 self.boey_load_state(state_dir)
         if self.boey_current_level == 0:
-            print(f'env_id: {self.env_id}, level: {self.boey_current_level}')
+            # print(f'env_id: {self.env_id}, level: {self.boey_current_level}')
+            print(f'env_id: {self.env_id}, initializing... {"|" * (self.env_id % 10)}')
+
+            
             state_to_init = self.boey_init_state
             if self.boey_randomization:
                 assert isinstance(self.boey_randomization, float)
