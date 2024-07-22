@@ -13,7 +13,7 @@ debug:
     disable_wild_encounters: True
     disable_ai_actions: True
     use_global_map: False
-    reduce_res: False
+    reduce_res: True # False
     animate_scripts: True
   train:
     device: cpu
@@ -122,8 +122,8 @@ env:
 
   # Boey config below
   boey_headless: True
-  boey_save_final_state: True
-  boey_early_stop: True  # resumed early stopping to ensure reward signal
+  boey_save_final_state: False # True
+  boey_early_stop: False # True  # resumed early stopping to ensure reward signal
   boey_action_freq: 24
   boey_init_state: has_pokedex_nballs_noanim.state
   boey_max_steps: 30720000 # 1024 * 1000 * 30  # 30m steps
@@ -163,7 +163,7 @@ train:
   seed: 1
   torch_deterministic: True
   device: cuda
-  compile: True
+  compile: False # True
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
   total_timesteps: 100_000_000_000
@@ -186,9 +186,9 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 288 # 96 # 288 # 96
-  num_workers: 24 # 24
-  env_batch_size: 72 # 32 # 72 # 8
+  num_envs: 96 # 24 # 288 # 96 # 288 # 96
+  num_workers: 24 # 24 # 24
+  env_batch_size: 32 # 72 # 32 # 72 # 8
   env_pool: True
   zero_copy: False
 

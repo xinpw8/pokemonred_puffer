@@ -97,7 +97,7 @@ from pokemonred_puffer.ram_addresses import RamAddress as RAM
 # from pokemonred_puffer.stage_manager import StageManager, STAGE_DICT, POKECENTER_TO_INDEX_DICT
 from skimage.transform import downscale_local_mean
 
-
+LEANKE_PARTY_LEVEL_ADDR = [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]
 
 # Configure logging
 logging.basicConfig(
@@ -375,18 +375,18 @@ class RedGymEnv(Env):
         obs_space = {
             "screen": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
             "visited_mask": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
-            "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
-            "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
-            "surf_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
-            "strength_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
-            "map_id": spaces.Box(low=0, high=300, shape=(1,), dtype=np.uint8),
-            "badges": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
-            "bag_items": spaces.Box(low=0, high=max(ItemsThatGuy._value2member_map_.keys()), shape=(20,), dtype=np.uint8),
-            "bag_quantity": spaces.Box(low=0, high=100, shape=(20,), dtype=np.uint8),
-        } | {
-            event: spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8)
-            for event in REQUIRED_EVENTS
-        } | {
+        #     "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
+        #     "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+        #     "surf_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+        #     "strength_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
+        #     "map_id": spaces.Box(low=0, high=300, shape=(1,), dtype=np.uint8),
+        #     "badges": spaces.Box(low=0, high=255, shape=(1,), dtype=np.uint8),
+        #     "bag_items": spaces.Box(low=0, high=max(ItemsThatGuy._value2member_map_.keys()), shape=(20,), dtype=np.uint8),
+        #     "bag_quantity": spaces.Box(low=0, high=100, shape=(20,), dtype=np.uint8),
+        # } | {
+        #     event: spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8)
+        #     for event in REQUIRED_EVENTS
+        # } | {
             'boey_image': spaces.Box(low=0, high=255, shape=(3, 72, 80), dtype=np.uint8),
             'boey_minimap': spaces.Box(low=0, high=1, shape=(14, 9, 10), dtype=np.float32),
             'boey_minimap_sprite': spaces.Box(low=0, high=390, shape=(9, 10), dtype=np.int16),
@@ -718,7 +718,7 @@ class RedGymEnv(Env):
         self.blackout_check = 0
         self.blackout_count = 0
         self.levels = [
-            self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
+            self.read_m(f"wPartyMon{i+1}Level") for i in range(self.safe_wpartycount)
         ]
         self.exp_bonus = 0
 
@@ -744,6 +744,30 @@ class RedGymEnv(Env):
             infos |= {"state": state.read()}
         return self._get_obs(), infos
 
+    def leanke_party_level(self):
+        try:
+            party_levels = [x for x in [self.pyboy.memory[addr] for addr in LEANKE_PARTY_LEVEL_ADDR] if x > 0]
+            return party_levels # [x for x in party_levels if x > 0]
+        except Exception as e:
+            logging.error(f'LEANKE MESSED UP!!!: {e}')
+            return [0]
+    
+    @property
+    def safe_wpartycount(self):
+        party_count = self.read_m("wPartyCount") if self.read_m("wPartyCount") < 6 else 1
+        if party_count > 6:
+            logging.error(f'environment.py -> env_id: {self.env_id}, in self.safe_wPartycount: party_size: {party_count} is greater than 6')
+        else:
+            return party_count
+        
+    @property
+    def safe_wenemycount(self):
+        enemy_party_count = self.read_m("wEnemyPartyCount") if self.read_m("wEnemyPartyCount") < 6 else 1
+        if enemy_party_count > 6:
+            logging.error(f'environment.py -> env_id: {self.env_id}, in self.safe_wEnemycount: enemy_party_size: {enemy_party_count} is greater than 6')
+        else:
+            return enemy_party_count
+        
     def init_mem(self):
         # Maybe I should preallocate a giant matrix for all map ids
         # All map ids have the same size, right?
@@ -910,66 +934,74 @@ class RedGymEnv(Env):
                 )
 
         red_gym_env_v3_obs = {
-            'boey_image': self.boey_recent_frames,
-            'boey_minimap': self.boey_get_minimap_obs(),
-            'boey_minimap_sprite': self.boey_get_minimap_sprite_obs(),
-            'boey_minimap_warp': self.boey_get_minimap_warp_obs(),
-            'boey_vector': self.boey_get_all_raw_obs(),
-            'boey_map_ids': self.boey_get_last_10_map_ids_obs(),
-            'boey_map_step_since': self.boey_get_last_10_map_step_since_obs(),
-            'boey_item_ids': self.boey_get_all_item_ids_obs(),
-            'boey_item_quantity': self.boey_get_items_quantity_obs(),
-            'boey_poke_ids': self.boey_get_all_pokemon_ids_obs(),
-            'boey_poke_type_ids': self.boey_get_all_pokemon_types_obs(),
-            'boey_poke_move_ids': self.boey_get_all_move_ids_obs(),
-            'boey_poke_move_pps': self.boey_get_all_move_pps_obs(),
-            'boey_poke_all': self.boey_get_all_pokemon_obs(),
-            'boey_event_ids': self.boey_get_all_event_ids_obs(),
-            'boey_event_step_since': self.boey_get_all_event_step_since_obs(),
+            'boey_image': self.boey_recent_frames, # (3, 72, 80),
+            'boey_minimap': self.boey_get_minimap_obs(), # (14, 9, 10), 
+            'boey_minimap_sprite': self.boey_get_minimap_sprite_obs(), # (9, 10), 
+            'boey_minimap_warp': self.boey_get_minimap_warp_obs(), # (9, 10), 
+            'boey_vector': self.boey_get_all_raw_obs(), # (71,),
+            'boey_map_ids': self.boey_get_last_10_map_ids_obs(), # (10,),
+            'boey_map_step_since': self.boey_get_last_10_map_step_since_obs(), # (10, 1),
+            'boey_item_ids': self.boey_get_all_item_ids_obs(), # (20,),
+            'boey_item_quantity': self.boey_get_items_quantity_obs(), # (20, 1),
+            'boey_poke_ids': self.boey_get_all_pokemon_ids_obs(), # (12,),
+            'boey_poke_type_ids': self.boey_get_all_pokemon_types_obs(), # (12, 2),
+            'boey_poke_move_ids': self.boey_get_all_move_ids_obs(), # (12, 4),
+            'boey_poke_move_pps': self.boey_get_all_move_pps_obs(), # (12, 4, 2),
+            'boey_poke_all': self.boey_get_all_pokemon_obs(), # (12, 23),
+            'boey_event_ids': self.boey_get_all_event_ids_obs(), # (128,),
+            'boey_event_step_since': self.boey_get_all_event_step_since_obs(), # (128, 1),
         }
 
+        # logging.info(f'game_pixels_render, visited_mask shapes: {game_pixels_render.shape}, {visited_mask.shape}')
+        # logging.info(f'red_gym_env_v3_obs unpacked obs shapes: \n{red_gym_env_v3_obs["boey_image"].shape}, \n{red_gym_env_v3_obs["boey_minimap"].shape}, \n{red_gym_env_v3_obs["boey_minimap_sprite"].shape}, \n{red_gym_env_v3_obs["boey_minimap_warp"].shape}, \n{red_gym_env_v3_obs["boey_vector"].shape}, \n{red_gym_env_v3_obs["boey_map_ids"].shape}, \n{red_gym_env_v3_obs["boey_map_step_since"].shape}, \n{red_gym_env_v3_obs["boey_item_ids"].shape}, \n{red_gym_env_v3_obs["boey_item_quantity"].shape}, \n{red_gym_env_v3_obs["boey_poke_ids"].shape}, \n{red_gym_env_v3_obs["boey_poke_type_ids"].shape}, \n{red_gym_env_v3_obs["boey_poke_move_ids"].shape}, \n{red_gym_env_v3_obs["boey_poke_move_pps"].shape}, \n{red_gym_env_v3_obs["boey_poke_all"].shape}, \n{red_gym_env_v3_obs["boey_event_ids"].shape}, \n{red_gym_env_v3_obs["boey_event_step_since"].shape}')
+
         return {
-            "screen": game_pixels_render,
-            "visited_mask": visited_mask,
+            "screen": game_pixels_render, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
+            "visited_mask": visited_mask, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
         } | ({"global_map": global_map} if self.use_global_map else {}) | red_gym_env_v3_obs
 
+    
     def _get_obs(self):
-        _, wBagItems = self.pyboy.symbol_lookup("wBagItems")
-        bag = np.array(self.pyboy.memory[wBagItems : wBagItems + 40], dtype=np.uint8)
-        numBagItems = self.read_m("wNumBagItems")
-        bag[2 * numBagItems :] = 0
+        return self.render()
+    
+    
+    # def _get_obs(self):
+    #     _, wBagItems = self.pyboy.symbol_lookup("wBagItems")
+    #     bag = np.array(self.pyboy.memory[wBagItems : wBagItems + 40], dtype=np.uint8)
+    #     numBagItems = self.read_m("wNumBagItems")
+    #     bag[2 * numBagItems :] = 0
 
-        try:
-            map_n = self.read_m(0xD35E)
-            if 0 <= map_n < 247:
-                map_id = map_n
-            else:
-                map_id = 0
-                logging.info(f'env_id: {self.env_id}: Invalid map_id: {map_n}')
-        except Exception as e:
-            map_id = 0
-            logging.error(f'env_id: {self.env_id}: Error getting map_id: {e}')
+    #     try:
+    #         map_n = self.read_m(0xD35E)
+    #         if 0 <= map_n < 247:
+    #             map_id = map_n
+    #         else:
+    #             map_id = 0
+    #             logging.info(f'env_id: {self.env_id}: Invalid map_id: {map_n}')
+    #     except Exception as e:
+    #         map_id = 0
+    #         logging.error(f'env_id: {self.env_id}: Error getting map_id: {e}')
                     
-        return (
-            self.render()
-            | {
-                "direction": np.array(
-                    self.read_m("wSpritePlayerStateData1FacingDirection") // 4, dtype=np.uint8
-                ),
-                "cut_in_party": np.array(self.check_if_party_has_hm(0xF), dtype=np.uint8),
-                "surf_in_party": np.array(self.check_if_party_has_hm(0x39), dtype=np.uint8),
-                "strength_in_party": np.array(self.check_if_party_has_hm(0x46), dtype=np.uint8),
-                "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
-                "map_id": np.array(map_id, dtype=np.uint8),
-                "bag_items": bag[::2].copy(),
-                "bag_quantity": bag[1::2].copy(),
-            }
-            | {event: np.array(self.events.get_event(event)) for event in REQUIRED_EVENTS}
-        )
+    #     return (
+    #         self.render()
+    #         | {
+    #             "direction": np.array(
+    #                 self.read_m("wSpritePlayerStateData1FacingDirection") // 4, dtype=np.uint8
+    #             ),
+    #             "cut_in_party": np.array(self.check_if_party_has_hm(0xF), dtype=np.uint8),
+    #             "surf_in_party": np.array(self.check_if_party_has_hm(0x39), dtype=np.uint8),
+    #             "strength_in_party": np.array(self.check_if_party_has_hm(0x46), dtype=np.uint8),
+    #             "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
+    #             "map_id": np.array(map_id, dtype=np.uint8),
+    #             "bag_items": bag[::2].copy(),
+    #             "bag_quantity": bag[1::2].copy(),
+    #         }
+    #         | {event: np.array(self.events.get_event(event)) for event in REQUIRED_EVENTS}
+    #     )
         
         
         
-    ## Previous code - adding a bunch of new observations
+    ## OLD OLD Previous code - adding a bunch of new observations
     # def render(self):
     #     game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
 
@@ -1113,7 +1145,7 @@ class RedGymEnv(Env):
     #     )
 
     def set_perfect_iv_dvs(self):
-        party_size = self.read_m("wPartyCount")
+        party_size = self.safe_wpartycount
         for i in range(party_size):
             _, addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
             self.pyboy.memory[addr + 17 : addr + 17 + 12] = 0xFF
@@ -1123,7 +1155,7 @@ class RedGymEnv(Env):
             
     def party_has_cut_capable_mon(self):
         # find bulba and replace tackle (first skill) with cut
-        party_size = self.read_m("wPartyCount")
+        party_size = self.safe_wpartycount
         for i in range(party_size):
             # PRET 1-indexes
             _, species_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
@@ -1470,6 +1502,7 @@ class RedGymEnv(Env):
         obs = self._get_obs()
 
         self.step_count += 1
+        self.boey_step_count += 1
         reset = self.step_count >= self.max_steps
 
         if not self.party_has_cut_capable_mon():
@@ -1547,8 +1580,8 @@ class RedGymEnv(Env):
 
     def teach_hm(self, tmhm: int, pp: int, pokemon_species_ids):
         # find bulba and replace tackle (first skill) with cut
-        party_size = self.read_m("wPartyCount")
-        for i in range(min(party_size, 6)):  # Ensure the party size does not exceed 6
+        party_size = self.safe_wpartycount
+        for i in range(party_size):  # game errantly returns 57 for wPartyCount
             try:
                 # PRET 1-indexes
                 _, species_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
@@ -1568,29 +1601,6 @@ class RedGymEnv(Env):
             except ValueError as e:
                 logging.error(f"env_id: {self.env_id}: Symbol lookup value error for party member {i+1}: {e}")
                 continue  # Skip to the next party member
-
-
-    ## throws wPartyMon7Species error
-    # def teach_hm(self, tmhm: int, pp: int, pokemon_species_ids):
-    #     # find bulba and replace tackle (first skill) with cut
-    #     party_size = self.read_m("wPartyCount")
-    #     for i in range(party_size):
-    #         try:
-    #             # PRET 1-indexes
-    #             _, species_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
-    #             poke = self.pyboy.memory[species_addr]
-    #             # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/pokemon_constants.asm
-    #             if poke in pokemon_species_ids:
-    #                 for slot in range(4):
-    #                     move_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")[1] + slot
-    #                     pp_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}PP")[1] + slot
-    #                     if self.pyboy.memory[move_addr] not in {0xF, 0x13, 0x39, 0x46, 0x94, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8}:
-    #                         self.pyboy.memory[move_addr] = tmhm
-    #                         self.pyboy.memory[pp_addr] = pp
-    #                         break
-    #         except KeyError as e:
-    #             logging.error(f"env_id: {self.env_id}: Symbol lookup failed for party member {i+1}: {e}")
-    #             continue  # Skip to the next party member
     
     def cut_if_next(self):
         # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/tileset_constants.asm#L11C8-L11C11
@@ -1759,8 +1769,10 @@ class RedGymEnv(Env):
 
     def agent_stats(self, action):
         self.levels = [
-            self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
+            self.read_m(f"wPartyMon{i+1}Level") for i in range(self.safe_wpartycount)
         ]
+        self.leanke_levels = self.leanke_party_level() # leanke's attempt to safely get party levels
+        
         # badges = self.read_m("wObtainedBadges")
         # explore_map = self.explore_map
         # explore_map[explore_map > 0] = 1
@@ -1993,9 +2005,12 @@ class RedGymEnv(Env):
         return new_step
 
     def read_m(self, addr: str | int) -> int:
-        if isinstance(addr, str):
-            return self.pyboy.memory[self.pyboy.symbol_lookup(addr)[1]]
-        return self.pyboy.memory[addr]
+        try:
+            if isinstance(addr, str):
+                return self.pyboy.memory[self.pyboy.symbol_lookup(addr)[1]]
+            return self.pyboy.memory[addr]
+        except Exception as e:
+            logging.error(f'env_id_{self.env_id}: error in self.read_m at addr: {addr}: {e})')
     
     def write_mem(self, addr, value):
         mem = self.pyboy.memory[addr] = value
@@ -2079,7 +2094,7 @@ class RedGymEnv(Env):
 
     def update_max_op_level(self):
         # Ensure there are elements in the sequence before calling max()
-        enemy_party_count = self.read_m("wEnemyPartyCount")
+        enemy_party_count = self.safe_wenemycount
         if enemy_party_count > 0:
             opponent_levels = [
                 self.read_m(f"wEnemyMon{i+1}Level") for i in range(enemy_party_count)
@@ -2129,7 +2144,7 @@ class RedGymEnv(Env):
         # TODO: Make a hook
         # Scan party
         try:
-            for i in range(self.read_m("wPartyCount")):
+            for i in range(self.safe_wpartycount):
                 _, addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")
                 for move_id in self.pyboy.memory[addr : addr + 4]:
                     # if move_id in TM_HM_MOVES:
@@ -2150,7 +2165,7 @@ class RedGymEnv(Env):
             logging.error(f"env_id: {self.env_id}: Error updating TM/HM moves obtained: {e}")
 
     def read_hp_fraction(self):
-        party_size = min(self.read_m("wPartyCount"), 6)  # Ensure the party size does not exceed 6
+        party_size = self.safe_wpartycount
         try:
             hp_sum = sum(self.read_short(f"wPartyMon{i+1}HP") for i in range(party_size))
             max_hp_sum = sum(self.read_short(f"wPartyMon{i+1}MaxHP") for i in range(party_size))
@@ -2161,15 +2176,6 @@ class RedGymEnv(Env):
         except KeyError as e:
             logging.error(f"env_id: {self.env_id}: Symbol lookup failed for party member HP: {e}")
             return 0  # Return 0 or a suitable default value in case of error
-
-
-    ## throws wPartyMon7HP pyboy symbol lookup error
-    # def read_hp_fraction(self):
-    #     party_size = self.read_m("wPartyCount")
-    #     hp_sum = sum(self.read_short(f"wPartyMon{i+1}HP") for i in range(party_size))
-    #     max_hp_sum = sum(self.read_short(f"wPartyMon{i+1}MaxHP") for i in range(party_size))
-    #     max_hp_sum = max(max_hp_sum, 1)
-    #     return hp_sum / max_hp_sum
 
     def update_map_progress(self):
         map_idx = self.read_m(0xD35E)
@@ -3144,6 +3150,7 @@ class RedGymEnv(Env):
             WindowEvent.RELEASE_BUTTON_B
         ]
 
+
         self.boey_noop_button_index = self.boey_valid_actions.index(WindowEvent.PASS)
         self.boey_swap_button_index = self.boey_valid_actions.index(988)
         self.boey_output_shape = (144//2, 160//2)
@@ -3156,6 +3163,8 @@ class RedGymEnv(Env):
             self.boey_output_shape[1]
         )
         self.boey_output_vector_shape = (99, )
+        
+        
         
     
     # def read_ram_m(self, addr: RAM) -> int:
@@ -3590,7 +3599,10 @@ class RedGymEnv(Env):
         ]
     
     def boey_read_num_poke(self):
-        return ram_map.mem_val(self.pyboy, 0xD163)
+        num_poke = ram_map.mem_val(self.pyboy, 0xD163)
+        if num_poke > 6:
+            logging.error(f'env_id: {self.env_id}, self.boey_read_num_poke: num_poke: {num_poke} > 6')
+        return num_poke if num_poke < 6 else 6
     
     def boey_update_num_poke(self):
         self.boey_last_num_poke = self.boey_read_num_poke()
@@ -4120,7 +4132,7 @@ class RedGymEnv(Env):
                 self._boey_battle_type = result
         return self._boey_battle_type
     
-    def is_wild_battle(self):
+    def boey_is_wild_battle(self):
         return self.boey_battle_type == 1
     
     def boey_update_max_event_rew(self):
@@ -4207,9 +4219,6 @@ class RedGymEnv(Env):
         return (100 * 100 * self.boey_read_bcd(self.read_m(0xD347)) + 
                 100 * self.boey_read_bcd(self.read_m(0xD348)) +
                 self.boey_read_bcd(self.read_m(0xD349)))
-
-    def boey_read_num_poke(self):
-        return self.read_m(0xD163)
     
     def boey_multi_hot_encoding(self, cnt, max_n):
         return [1 if cnt < i else 0 for i in range(max_n)]
@@ -4632,7 +4641,7 @@ class RedGymEnv(Env):
         if pokemon_count > 6:
             print(f'invalid pokemon count: {pokemon_count}')
             pokemon_count = 6
-            self.boey_debug_save()
+            # self.boey_debug_save()
         for i in range(pokemon_count):
             # 2 types per pokemon
             ptypes = self.boey_get_pokemon_types(party_type_addr + i * 44)
@@ -4647,7 +4656,7 @@ class RedGymEnv(Env):
                 if pokemon_count > 6:
                     print(f'invalid opp_pokemon count: {pokemon_count}')
                     pokemon_count = 6
-                    self.boey_debug_save()
+                    # self.boey_debug_save()
                 for i in range(pokemon_count):
                     # 2 types per pokemon
                     ptypes = self.boey_get_pokemon_types(enemy_type_addr + i * 44)
@@ -4945,6 +4954,9 @@ class RedGymEnv(Env):
         # features: pp, have pp
         result = np.zeros((6, 4, 2), dtype=np.float32)
         pokemon_count = self.boey_read_num_poke()
+        if pokemon_count > 6:
+            logging.error(f'environment.py -> env_id: {self.env_id}, self.boey_get_party_pokemon_move_pps_obs: pokemon_count: {pokemon_count} is greater than 6')
+            pokemon_count = 6
         for i in range(pokemon_count):
             result[i] = self.boey_get_one_pokemon_move_pps_obs(0xD188 + (i * 44))
         for i in range(pokemon_count, 6):

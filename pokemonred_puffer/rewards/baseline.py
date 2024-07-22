@@ -11,6 +11,16 @@ from pokemonred_puffer.environment import (
 
 
 from .. import ram_map, ram_map_leanke
+import logging
+
+# Configure logging
+logging.basicConfig(
+    filename="diagnostics.log",  # Name of the log file
+    filemode="w",  # Append to the file
+    format="%(message)s",  # Log format
+    level=logging.INFO,  # Log level
+)
+
 
 MUSEUM_TICKET = (0xD754, 0)
 
@@ -100,8 +110,9 @@ class BaselineRewardEnv(RedGymEnv):
         return self.step_count + self.reset_count * self.max_steps
 
     def get_levels_reward(self):
-        party_size = self.read_m("wPartyCount")
-        party_levels = [self.read_m(f"wPartyMon{i+1}Level") for i in range(party_size)]
+        party_size = self.safe_wpartycount
+        for i in range(party_size):
+            party_levels = self.read_m(f"wPartyMon{i+1}Level") 
         self.max_level_sum = max(self.max_level_sum, sum(party_levels))
         if self.max_level_sum < 15:
             return self.max_level_sum
@@ -182,9 +193,10 @@ class TeachCutReplicationEnvFork(BaselineRewardEnv):
         }
 
     def get_levels_reward(self):
-        party_size = self.read_m("wPartyCount")
-        party_levels = [self.read_m(f"wPartyMon{i+1}Level") for i in range(party_size)]
-        self.max_level_sum = max(self.max_level_sum, sum(party_levels))
+        party_size = self.safe_wpartycount
+        for i in range(party_size):
+            party_levels = self.read_m(f"wPartyMon{i+1}Level") 
+        self.max_level_sum = max(self.max_level_sum, sum(party_levels if party_levels else 0))
         if self.max_level_sum < 15:
             return self.max_level_sum
         else:
@@ -310,8 +322,10 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
         return rewards
 
     def get_levels_reward(self):
-        party_size = self.read_m("wPartyCount")
-        party_levels = [self.read_m(f"wPartyMon{i+1}Level") for i in range(party_size)]
+        party_size = self.safe_wpartycount
+        for i in range(party_size):
+            party_levels = []
+            party_levels.append(self.read_m(f"wPartyMon{i+1}Level"))
         self.max_level_sum = max(self.max_level_sum, sum(party_levels))
         if self.max_level_sum < 15:
             return self.max_level_sum
