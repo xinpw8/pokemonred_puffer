@@ -829,7 +829,7 @@ import pufferlib.vector
 import pyximport
 import rich
 import torch
-import torch.nn as nn
+from torch import nn
 from rich.console import Console
 from rich.table import Table
 
@@ -916,7 +916,14 @@ def unroll_nested_dict(d):
             yield k, v
 
 
+# def count_params(policy: nn.Module):
+#     return sum(p.numel() for p in policy.parameters() if p.requires_grad)
+
 def count_params(policy: nn.Module):
+    # Ensure the model parameters are initialized by passing a dummy input
+    dummy_input = torch.randn(1, *policy.observation_space.shape)  # Use correct input shape
+    policy(dummy_input)
+    
     return sum(p.numel() for p in policy.parameters() if p.requires_grad)
 
 
@@ -989,6 +996,8 @@ class CleanPuffeRL:
 
         if self.config.compile:
             self.policy = torch.compile(self.policy, mode=self.config.compile_mode)
+            
+
 
         self.optimizer = torch.optim.Adam(
             self.policy.parameters(), lr=self.config.learning_rate, eps=1e-5
@@ -1006,8 +1015,25 @@ class CleanPuffeRL:
         self.taught_cut = False
         self.log = False
 
+        # dummy batch to init lazy modules
+        # After loading or creating your model, add a dummy forward pass to initialize the parameters
+        dummy_obs = torch.zeros(1, *self.vecenv.single_observation_space.shape).to(self.config.device)
+        if self.lstm:
+            # If your model has an LSTM, initialize the LSTM state with the correct dimensions
+            dummy_state = (
+                torch.zeros(self.lstm.num_layers, 1, self.lstm.hidden_size).to(self.config.device),
+                torch.zeros(self.lstm.num_layers, 1, self.lstm.hidden_size).to(self.config.device)
+            )
+            with torch.no_grad():
+                self.policy(dummy_obs, dummy_state)
+        else:
+            with torch.no_grad():
+                self.policy(dummy_obs)
+
+
     @pufferlib.utils.profile
     def evaluate(self):
+        
         # Clear all self.infos except for the state
         for k in list(self.infos.keys()):
             if k != "state":
@@ -1057,6 +1083,14 @@ class CleanPuffeRL:
         with self.profile.eval_misc:
             policy = self.policy
             lstm_h, lstm_c = self.experience.lstm_h, self.experience.lstm_c
+            
+        # Initialize dummy state
+        dummy_ob = torch.zeros((1, *self.vecenv.single_observation_space.shape), device=self.config.device)
+        with torch.no_grad():
+            if lstm_h is not None:
+                self.policy(dummy_ob, (lstm_h[:, :1, :], lstm_c[:, :1, :]))
+            else:
+                self.policy(dummy_ob)
 
         while not self.experience.full:
             with self.profile.env:

@@ -1071,20 +1071,16 @@ logging.basicConfig(
     level=logging.INFO,  # Log level
 )
 
-
 class MultiConvolutionalPolicy(nn.Module):
     def __init__(
         self,
         env: pufferlib.emulation.GymnasiumPufferEnv,
-        boey_observation_space: spaces.Dict, ## Boey space
+        boey_observation_space: spaces.Dict,  # Boey space
         hidden_size: int = 512,
         channels_last: bool = True,
         downsample: int = 1,
-        
-        ## Boey __init__ below
-        cnn_output_dim: int = 256*2,
+        cnn_output_dim: int = 256 * 2,
         normalized_image: bool = False,
-        ## Boey __init__ above
     ):
         super().__init__()
         self.dtype = pufferlib.pytorch.nativize_dtype(env.emulated)
@@ -1105,11 +1101,10 @@ class MultiConvolutionalPolicy(nn.Module):
             nn.ReLU(),
         )
 
-        self.actor = nn.LazyLinear(self.num_actions)
-        self.value_fn = nn.LazyLinear(1)
+        self.actor = nn.Linear(hidden_size, self.num_actions)
+        self.value_fn = nn.Linear(hidden_size, 1)
 
         self.two_bit = env.unwrapped.env.two_bit
-        # self.use_fixed_x = env.unwrapped.env.fixed_x
         self.use_global_map = env.unwrapped.env.use_global_map
 
         if self.use_global_map:
@@ -1121,7 +1116,7 @@ class MultiConvolutionalPolicy(nn.Module):
                 nn.LazyConv2d(64, 3, stride=1),
                 nn.ReLU(),
                 nn.Flatten(),
-                nn.LazyLinear(480),
+                nn.Linear(480, cnn_output_dim),
                 nn.ReLU(),
             )
 
@@ -1139,64 +1134,47 @@ class MultiConvolutionalPolicy(nn.Module):
         self.register_buffer(
             "unpack_shift", torch.tensor([6, 4, 2, 0], dtype=torch.uint8), persistent=False
         )
-        
-        ## Boey embeddings below
 
-        # boey_observation_space.spaces.items()
-
-        # boey_image
-        # shape in env: (3, 72, 80),
-        # shape in policy: defined by CNN
+        # Boey embeddings below
         n_input_channels = boey_observation_space['boey_image'].shape[0]
-        print(f'n_input_channels: {n_input_channels}')
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32*2, kernel_size=8, stride=4, padding=(2, 0)),
+            nn.Conv2d(n_input_channels, 64, kernel_size=8, stride=4, padding=(2, 0)),
             nn.ReLU(),
             nn.AdaptiveMaxPool2d(output_size=(9, 9)),
-            nn.Conv2d(32*2, 64*2, kernel_size=4, stride=2, padding=2),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=2),
             nn.ReLU(),
-            nn.Conv2d(64*2, 64*2, kernel_size=3, stride=1, padding=0),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=0),
             nn.ReLU(),
             nn.Flatten(),
         )
 
         # Compute shape by doing one forward pass
-        with th.no_grad():
-            flatten_boey_observation_space = th.as_tensor(boey_observation_space['boey_image'].sample()[None]).float()
+        with torch.no_grad():
+            flatten_boey_observation_space = torch.as_tensor(boey_observation_space['boey_image'].sample()[None]).float()
             n_flatten = self.cnn(flatten_boey_observation_space).shape[1]
 
         self.cnn_linear = nn.Sequential(nn.Linear(n_flatten, cnn_output_dim), nn.ReLU())
 
-        # sprite
-        # shape in env: (9, 10),
-        # shape in policy: (9, 10, 8),
         sprite_emb_dim = 8
         self.minimap_sprite_embedding = nn.Embedding(390, sprite_emb_dim, padding_idx=0)
-        
-        # warp
-        # shape in env: (9, 10),
-        # shape in policy: (9, 10, 8),
+
         warp_emb_dim = 8
         self.minimap_warp_embedding = nn.Embedding(830, warp_emb_dim, padding_idx=0)
 
-        # minimap
-        # shape in env: (14, 9, 10),
-        # shape in policy: (14 + 8 + 8, 9, 10)
         n_input_channels = boey_observation_space['boey_minimap'].shape[0] + sprite_emb_dim + warp_emb_dim
         self.minimap_cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32*2, kernel_size=4, stride=1, padding=0),
+            nn.Conv2d(n_input_channels, 64, kernel_size=4, stride=1, padding=0),
             nn.ReLU(),
-            nn.Conv2d(32*2, 64*2, kernel_size=4, stride=1, padding=0),
+            nn.Conv2d(64, 128, kernel_size=4, stride=1, padding=0),
             nn.ReLU(),
-            nn.Conv2d(64*2, 128*2, kernel_size=3, stride=1, padding=0),
+            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=0),
             nn.ReLU(),
             nn.Flatten(),
         )
-        
-        n_flatten = 128*2*2
+
+        n_flatten = 256 * 2 * 2
         self.minimap_cnn_linear = nn.Sequential(nn.Linear(n_flatten, cnn_output_dim), nn.ReLU())
 
-        # poke_move_ids (12, 4) -> (12, 4, 8)
         self.poke_move_ids_embedding = nn.Embedding(167, 8, padding_idx=0)
         self.move_fc_relu = nn.Sequential(
             nn.Linear(10, 8),
@@ -1206,11 +1184,9 @@ class MultiConvolutionalPolicy(nn.Module):
         )
         self.move_max_pool = nn.AdaptiveMaxPool2d(output_size=(1, 16))
 
-        # poke_type_ids (12, 2) -> (12, 2, 8)
         self.poke_type_ids_embedding = nn.Embedding(17, 8, padding_idx=0)
-        # poke_ids (12, ) -> (12, 8)
         self.poke_ids_embedding = nn.Embedding(192, 16, padding_idx=0)
-        
+
         self.poke_fc_relu = nn.Sequential(
             nn.Linear(63, 64),
             nn.ReLU(),
@@ -1261,20 +1237,14 @@ class MultiConvolutionalPolicy(nn.Module):
         self.map_ids_max_pool = nn.AdaptiveMaxPool2d(output_size=(1, map_ids_emb_dim))
 
         self._features_dim = 579 + 256 + map_ids_emb_dim + 512
-        
-        ## Boey embeddings above
 
     def forward(self, observations):
         hidden, lookup = self.encode_observations(observations)
         actions, value = self.decode_actions(hidden, lookup)
         return actions, value
 
-
-    # Add this line at the top of the file to set up logging
-    logging.basicConfig(filename='diagnostics.log', level=logging.INFO)
-    
     def encode_observations(self, observations):
-        observations = observations.type(torch.uint8)  # Undo bad cleanrl cast
+        observations = observations.type(torch.uint8)
         observations = pufferlib.pytorch.nativize_tensor(observations, self.dtype)
         
         if isinstance(observations, dict):
@@ -1282,35 +1252,26 @@ class MultiConvolutionalPolicy(nn.Module):
         else:
             raise ValueError("Expected observations to be a dictionary")
 
-        # Boey observation encoding below
-
-        # Ensure boey_image has 4 dimensions (batch_size, channels, height, width)
-        # logging.info(f'observations dict: {observations.keys()}')
-        # logging.info(f'observations["boey_image"].shape: {observations["boey_image"].shape}, .ndim: {observations["boey_image"].ndim}')
         if boey_image.ndim == 3:
             boey_image = boey_image.unsqueeze(0)
         elif boey_image.ndim == 2:
             boey_image = boey_image.unsqueeze(0).unsqueeze(0)
 
-        boey_image = boey_image.float()  # Ensure dtype consistency
+        boey_image = boey_image.float()
         img = self.cnn_linear(self.cnn(boey_image))
         
-        # minimap_sprite
         minimap_sprite = observations['boey_minimap_sprite'].to(torch.int)
         embedded_minimap_sprite = self.minimap_sprite_embedding(minimap_sprite)
         embedded_minimap_sprite = embedded_minimap_sprite.permute(0, 3, 1, 2)
 
-        # minimap_warp
         minimap_warp = observations['boey_minimap_warp'].to(torch.int)
         embedded_minimap_warp = self.minimap_warp_embedding(minimap_warp)
         embedded_minimap_warp = embedded_minimap_warp.permute(0, 3, 1, 2)
 
-        # concat with minimap
         minimap = observations['boey_minimap'].float()
         minimap = torch.cat([minimap, embedded_minimap_sprite, embedded_minimap_warp], dim=1)
         minimap = self.minimap_cnn_linear(self.minimap_cnn(minimap))
 
-        # Pokemon
         embedded_poke_move_ids = self.poke_move_ids_embedding(observations['boey_poke_move_ids'].to(torch.int))
         poke_move_pps = observations['boey_poke_move_pps']
         poke_moves = torch.cat([embedded_poke_move_ids, poke_move_pps], dim=-1)
@@ -1348,8 +1309,6 @@ class MultiConvolutionalPolicy(nn.Module):
         event_features = self.event_ids_fc_relu(event_concat)
         event_features = self.event_ids_max_pool(event_features).squeeze(-2)
 
-        # logging.info(f'event_features shape: {event_features.shape}')
-
         embedded_map_ids = self.map_ids_embedding(observations['boey_map_ids'].to(torch.int))
         map_step_since = observations['boey_map_step_since']
         map_concat = torch.cat([embedded_map_ids, map_step_since], dim=-1)
@@ -1364,15 +1323,11 @@ class MultiConvolutionalPolicy(nn.Module):
             poke_party_head,
             poke_opp_head,
             item_features,
-            event_features.squeeze(-1),  # Add batch dimension to event_features
+            event_features.squeeze(-1),
             vector,
             map_features,
         ]
         boey_features = [feature.float() for feature in boey_features_list]
-
-        # # Log the shapes of boey_features
-        # for i, feature in enumerate(boey_features):
-            # logging.info(f'boey_feature[{i}] shape: {feature.shape}')
 
         screen = observations["screen"]
         visited_mask = observations["visited_mask"]
@@ -1411,14 +1366,8 @@ class MultiConvolutionalPolicy(nn.Module):
         screen = screen.float()
         visited_mask = visited_mask.float()
 
-        # logging.info(f'screen shape: {screen.shape}')
-        # logging.info(f'visited_mask shape: {visited_mask.shape}')
-
         screen = screen.flatten(start_dim=1)
         visited_mask = visited_mask.flatten(start_dim=1)
-
-        # logging.info(f'screen shape after flattening: {screen.shape}')
-        # logging.info(f'visited_mask shape after flattening: {visited_mask.shape}')
 
         combined_features = torch.cat(
             [
@@ -1429,10 +1378,9 @@ class MultiConvolutionalPolicy(nn.Module):
             dim=-1
         )
 
-        # logging.info(f'combined_features shape: {combined_features.shape}')
+        print(f'combined_features shape: {combined_features.shape}')
 
         return self.encode_linear(combined_features), None
-
 
 
 

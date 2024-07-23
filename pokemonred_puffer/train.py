@@ -300,6 +300,8 @@
 #     else:
 #         raise ValueError("Mode must be one of train or evaluate")
 
+import torch
+from torch import nn
 import argparse
 import importlib
 from multiprocessing import Queue
@@ -310,7 +312,6 @@ from types import ModuleType
 from typing import Any, Callable
 
 import gymnasium as gym
-import torch
 import wandb
 import yaml
 
@@ -484,6 +485,11 @@ def init_wandb(args, resume=True):
     return wandb.init(**wandb_kwargs)
 
 
+def initialize_model(policy, dummy_input):
+    if isinstance(policy, nn.LazyModule):
+        policy(dummy_input)
+
+
 def train(
     args: pufferlib.namespace,
     env_creator: Callable,
@@ -527,9 +533,17 @@ def train(
         env_send_queues=env_send_queues,
         wandb_client=wandb_client,
     ) as trainer:
+        # Initialize model parameters
+        dummy_input = torch.randn(1, *trainer.policy.observation_space.shape)  # Use correct input shape
+        initialize_model(trainer.policy, dummy_input)
         while not trainer.done_training():
             trainer.evaluate()
             trainer.train()
+
+    # ) as trainer:
+    #     while not trainer.done_training():
+    #         trainer.evaluate()
+    #         trainer.train()
 
 
 if __name__ == "__main__":

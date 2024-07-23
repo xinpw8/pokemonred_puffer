@@ -110,9 +110,7 @@ class BaselineRewardEnv(RedGymEnv):
         return self.step_count + self.reset_count * self.max_steps
 
     def get_levels_reward(self):
-        party_size = self.safe_wpartycount
-        for i in range(party_size):
-            party_levels = self.read_m(f"wPartyMon{i+1}Level") 
+        party_levels = self.leanke_party_level()
         self.max_level_sum = max(self.max_level_sum, sum(party_levels))
         if self.max_level_sum < 15:
             return self.max_level_sum
@@ -193,9 +191,7 @@ class TeachCutReplicationEnvFork(BaselineRewardEnv):
         }
 
     def get_levels_reward(self):
-        party_size = self.safe_wpartycount
-        for i in range(party_size):
-            party_levels = self.read_m(f"wPartyMon{i+1}Level") 
+        party_levels = self.leanke_party_level()
         self.max_level_sum = max(self.max_level_sum, sum(party_levels if party_levels else 0))
         if self.max_level_sum < 15:
             return self.max_level_sum
@@ -322,10 +318,7 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
         return rewards
 
     def get_levels_reward(self):
-        party_size = self.safe_wpartycount
-        for i in range(party_size):
-            party_levels = []
-            party_levels.append(self.read_m(f"wPartyMon{i+1}Level"))
+        party_levels = self.leanke_party_level()
         self.max_level_sum = max(self.max_level_sum, sum(party_levels))
         if self.max_level_sum < 15:
             return self.max_level_sum

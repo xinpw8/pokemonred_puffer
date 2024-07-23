@@ -19,7 +19,7 @@ debug:
     device: cpu
     compile: False
     compile_mode: default
-    num_envs: 1
+    num_envs: 4
     num_workers: 1
     env_batch_size: 4
     env_pool: True
@@ -189,7 +189,7 @@ train:
   num_envs: 96 # 24 # 288 # 96 # 288 # 96
   num_workers: 24 # 24 # 24
   env_batch_size: 32 # 72 # 32 # 72 # 8
-  env_pool: True
+  env_pool: False # True
   zero_copy: False
 
   verbose: True
@@ -201,7 +201,7 @@ train:
   cpu_offload: False # False
   pool_kernel: [0]
   load_optimizer_state: False
-  use_rnn: True
+  use_rnn: False # True
   async_wrapper: False
 
   # swarm_frequency: 500

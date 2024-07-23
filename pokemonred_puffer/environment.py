@@ -747,24 +747,66 @@ class RedGymEnv(Env):
     def leanke_party_level(self):
         try:
             party_levels = [x for x in [self.pyboy.memory[addr] for addr in LEANKE_PARTY_LEVEL_ADDR] if x > 0]
-            return party_levels # [x for x in party_levels if x > 0]
+            logging.debug(f'LEANKE party levels: {party_levels}')
+            return party_levels
         except Exception as e:
             logging.error(f'LEANKE MESSED UP!!!: {e}')
             return [0]
-    
+
+    def leanke_party_count(self):
+        try:
+            party_levels = [self.pyboy.memory[addr] for addr in LEANKE_PARTY_LEVEL_ADDR]
+            logging.debug(f'LEANKE party levels (raw): {party_levels}')
+            party_count = len([x for x in party_levels if x > 0])
+            logging.debug(f'Calculated party count: {party_count}')
+            return party_count
+        except Exception as e:
+            logging.error(f'env_id: {self.env_id}, self.leanke_party_count(): ERROR: {e}')
+            return 0
+
+    def get_party_size(self):
+        party_size, party_levels = ram_map.party(self.pyboy)
+        logging.debug(f'RAM Map party size: {party_size}, party levels: {party_levels}')
+        return party_size, party_levels
+
     @property
     def safe_wpartycount(self):
-        party_count = self.read_m("wPartyCount") if self.read_m("wPartyCount") < 6 else 1
-        if party_count > 6:
-            logging.error(f'environment.py -> env_id: {self.env_id}, in self.safe_wPartycount: party_size: {party_count} is greater than 6')
+        party_count = self.read_m("wPartyCount")
+        if party_count is None or party_count < 1 or party_count > 6:
+            try:
+                party_count = self.leanke_party_count()
+                return party_count
+            except Exception as e:
+                logging.error(f'env_id: {self.env_id}, self.safe_wpartycount -> self.leanke_party_count(): ERROR: {e}')
+            
+            return 1
         else:
-            return party_count
+            if party_count <= 6:
+                party_count = party_count
+            else:
+                logging.error(f'environment.py -> env_id: {self.env_id}, in self.safe_wPartycount: party_count: {party_count} is greater than 6')
+                try:
+                    return self.leanke_party_count()
+                except Exception as e:
+                    logging.error(f'env_id: {self.env_id}, self.safe_wpartycount() -> self.leanke_party_count(): ERROR: {e}')
+                    return 1 # default vaule arbitrarily chosen
+            if party_count > 6:
+                logging.error(f'environment.py -> env_id: {self.env_id}, in self.safe_wPartycount: party_size: {party_count} is greater than 6')
+                try:
+                    return self.leanke_party_count()
+                except Exception as e:
+                    logging.error(f'env_id: {self.env_id}, self.safe_wpartycount() -> self.leanke_party_count(): ERROR: {e}')
+                    return 1 # default vaule arbitrarily chosen
+            else:
+                party_count = 1
+                return party_count
         
     @property
     def safe_wenemycount(self):
         enemy_party_count = self.read_m("wEnemyPartyCount") if self.read_m("wEnemyPartyCount") < 6 else 1
         if enemy_party_count > 6:
             logging.error(f'environment.py -> env_id: {self.env_id}, in self.safe_wEnemycount: enemy_party_size: {enemy_party_count} is greater than 6')
+            return 1
         else:
             return enemy_party_count
         
@@ -1334,9 +1376,9 @@ class RedGymEnv(Env):
         self.boey_update_last_10_map_ids()
         self.boey_update_last_10_coords()
         self.boey_update_seen_map_dict()
-        self.boey_update_visited_pokecenter_list()
+        # self.boey_update_visited_pokecenter_list()
         self.boey_recent_frames = np.roll(self.boey_recent_frames, 1, axis=0)
-        # self.boey_minor_patch()
+        # self.boey_minor_patch() ## Hugely complex; for Safari Zone
 
 
         # if self.boey_use_screen_explore:
@@ -3377,11 +3419,17 @@ class RedGymEnv(Env):
         # workaround for seen map xy axis bug
         cur_map_id = self.boey_current_map_id - 1
         x, y = self.boey_current_coords
-        # logging.info(f'boey_seen_map_dict = {self.boey_seen_map_dict}')
-        if y >= self.boey_seen_map_dict[cur_map_id].shape[0] or x >= self.boey_seen_map_dict[cur_map_id].shape[1]:
-            # print(f'ERROR1z: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), seen_map_dict[cur_map_id].shape: {self.boey_seen_map_dict[cur_map_id].shape}')
-            # print(f'ERROR2z: last 10 map ids: {self.boey_last_10_map_ids}')
-            return np.zeros((8, 9, 10), dtype=np.float32)
+        # print(f'seen_map_dict: {self.seen_map_dict}')
+        try:
+            try:
+                if y >= self.boey_seen_map_dict[cur_map_id].shape[0] or x >= self.boey_seen_map_dict[cur_map_id].shape[1]:
+                # print(f'ERROR1z: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), seen_map_dict[cur_map_id].shape: {self.seen_map_dict[cur_map_id].shape}')
+                # print(f'ERROR2z: last 10 map ids: {self.last_10_map_ids}')
+                    return np.zeros((8, 9, 10), dtype=np.float32)
+            except:
+                print(f'env_id: {self.env_id}, environment.py -> boey_get_all_seen_map_obs(): ERROR1z: env: {self.env_id}, x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]})')
+        except:
+            pass
 
         map_10 = self.boey_get_seen_map_obs(steps_since=10)  # (1, 9, 10)
         map_50 = self.boey_get_seen_map_obs(steps_since=50)  # (1, 9, 10)
@@ -3554,6 +3602,8 @@ class RedGymEnv(Env):
             if y >= self.boey_seen_map_dict[cur_map_id].shape[0] or x >= self.boey_seen_map_dict[cur_map_id].shape[1]:
                 self.boey_stuck_cnt += 1
                 print(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.boey_seen_map_dict[cur_map_id].shape}')
+                self.boey_seen_map_dict[cur_map_id][y, x] = self.boey_step_count
+                print(f'env_id: {self.env_id}, environment.py -> boey_update_seen_map_dict(): ERROR1: env: {self.env_id}, x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]})')
                 if self.boey_stuck_cnt > 50:
                     print(f'stucked for > 50 steps, force ES')
                     self.boey_early_done = True
@@ -3598,11 +3648,15 @@ class RedGymEnv(Env):
             for bit in f"{ram_map.read_bit(self.pyboy, i):08b}"
         ]
     
+    # def boey_read_num_poke(self):
+    #     # num_poke = ram_map.mem_val(self.pyboy, 0xD163)
+    #     num_poke = self.read_m("wPartyCount")
+    #     if num_poke > 6:
+    #         logging.error(f'env_id: {self.env_id}, self.boey_read_num_poke: num_poke: {num_poke} > 6')
+    #     return num_poke if num_poke < 6 else 6
+    
     def boey_read_num_poke(self):
-        num_poke = ram_map.mem_val(self.pyboy, 0xD163)
-        if num_poke > 6:
-            logging.error(f'env_id: {self.env_id}, self.boey_read_num_poke: num_poke: {num_poke} > 6')
-        return num_poke if num_poke < 6 else 6
+        return self.safe_wpartycount
     
     def boey_update_num_poke(self):
         self.boey_last_num_poke = self.boey_read_num_poke()
@@ -3774,11 +3828,6 @@ class RedGymEnv(Env):
     def boey_get_visited_pokecenter_reward(self):
         # reward for first time healed in pokecenter
         return len(self.boey_visited_pokecenter_list) * 2    
-    
-    def boey_update_visited_pokecenter_list(self):
-        last_pokecenter_id = self.boey_get_last_pokecenter_id()
-        if last_pokecenter_id != -1 and last_pokecenter_id not in self.boey_visited_pokecenter_list:
-            self.boey_visited_pokecenter_list.append(last_pokecenter_id)
 
     def boey_get_early_done_reward(self):
         return self.boey_elite_4_early_done * -0.3
@@ -3952,7 +4001,7 @@ class RedGymEnv(Env):
         if not self._boey_surf_badge:
             self._boey_surf_badge = ram_map.read_bit(self.pyboy, RAM.wObtainedBadges.value, 4) == 1   
 
-    def boey_update_last_10_coords(self):
+    def cd(self):
         current_coord = np.array([ram_map.mem_val(self.pyboy, 0xD362), ram_map.mem_val(self.pyboy, 0xD361)])
         # check if current_coord is in last_10_coords
         if (current_coord == self.boey_last_10_coords[0]).all():
@@ -4230,13 +4279,19 @@ class RedGymEnv(Env):
             return [1 if cnt == i+1 else 0 for i in range(max_n)]
     
     def boey_scaled_encoding(self, cnt, max_n: float):
-        max_n = float(max_n)
-        if isinstance(cnt, list):
-            return [min(1.0, c / max_n) for c in cnt]
-        elif isinstance(cnt, np.ndarray):
-            return np.clip(cnt / max_n, 0, 1)
-        else:
-            return min(1.0, cnt / max_n)
+        try:
+            max_n = float(max_n)
+            if isinstance(cnt, list):
+                return [min(1.0, c / max_n) for c in cnt]
+            elif isinstance(cnt, np.ndarray):
+                return np.clip(cnt / max_n, 0, 1)
+            elif cnt is None:
+                return 0.0
+            else:
+                return min(1.0, cnt / max_n)
+        except Exception as e:
+            logging.error(f'env_id: {self.env_id}, self.boey_scaled_encoding: {e}')
+            return 0.0
     
     def boey_get_badges_obs(self):
         return self.boey_multi_hot_encoding(self.boey_get_badges(), 12)
@@ -4852,13 +4907,17 @@ class RedGymEnv(Env):
         # 1d array, 6 pokemons, 1 id
         result = []
         pokemon_count = self.boey_read_num_poke()
-        for i in range(pokemon_count):
-            result.append(self.read_m(0xD16B + i * 44) + 1)
-        remaining_pokemon = 6 - pokemon_count
-        for i in range(remaining_pokemon):
-            result.append(0)
-        result = np.array(result, dtype=np.uint8)
-        return result
+        if pokemon_count is None:
+            logging.error(f'environment.py -> env_id: {self.env_id}, self.boey_get_party_pokemon_ids_obs: pokemon_count is None')
+            return np.zeros(6, dtype=np.uint8)
+        else:
+            for i in range(pokemon_count):
+                result.append(self.read_m(0xD16B + i * 44) + 1)
+            remaining_pokemon = 6 - pokemon_count
+            for i in range(remaining_pokemon):
+                result.append(0)
+            result = np.array(result, dtype=np.uint8)
+            return result
     
     def boey_get_opp_pokemon_ids_obs(self):
         # 6 enemy pokemons start from D8A4
@@ -5102,6 +5161,15 @@ class RedGymEnv(Env):
 
     def boey_get_last_map_id_obs(self):
         return np.array([self.boey_last_10_map_ids[0]], dtype=np.uint8)
+    
+    def boey_update_last_10_coords(self):
+        current_coord = np.array([self.read_m(0xD362), self.read_m(0xD361)])
+        # check if current_coord is in last_10_coords
+        if (current_coord == self.boey_last_10_coords[0]).all():
+            return
+        else:
+            self.boey_last_10_coords = np.roll(self.boey_last_10_coords, 1, axis=0)
+            self.boey_last_10_coords[0] = current_coord
     
     @property
     def boey_current_map_id(self):
