@@ -486,7 +486,7 @@ def init_wandb(args, resume=True):
 
 
 def initialize_model(policy, dummy_input):
-    if isinstance(policy, nn.LazyModule):
+    if isinstance(policy, nn.LazyLinear):
         policy(dummy_input)
 
 
@@ -534,7 +534,7 @@ def train(
         wandb_client=wandb_client,
     ) as trainer:
         # Initialize model parameters
-        dummy_input = torch.randn(1, *trainer.policy.observation_space.shape)  # Use correct input shape
+        dummy_input = torch.randn(1, *vecenv.single_observation_space.shape)  # Use correct input shape
         initialize_model(trainer.policy, dummy_input)
         while not trainer.done_training():
             trainer.evaluate()

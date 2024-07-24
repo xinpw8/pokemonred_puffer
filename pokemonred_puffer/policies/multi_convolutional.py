@@ -1087,17 +1087,18 @@ class MultiConvolutionalPolicy(nn.Module):
         self.num_actions = env.single_action_space.n
         self.channels_last = channels_last
         self.downsample = downsample
+        screen_network_channels = boey_observation_space['screen'].shape[0]
         self.screen_network = nn.Sequential(
-            nn.LazyConv2d(32, 8, stride=4),
+            nn.Conv2d(screen_network_channels, 32*2, kernel_size=8, stride=4),
             nn.ReLU(),
-            nn.LazyConv2d(64, 4, stride=2),
+            nn.Conv2d(64, 64, kernel_size=3, stride=2),
             nn.ReLU(),
-            nn.LazyConv2d(64, 3, stride=1),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
             nn.ReLU(),
             nn.Flatten(),
         )
         self.encode_linear = nn.Sequential(
-            nn.LazyLinear(hidden_size),
+            nn.Linear(12871, hidden_size),
             nn.ReLU(),
         )
 
@@ -1109,11 +1110,11 @@ class MultiConvolutionalPolicy(nn.Module):
 
         if self.use_global_map:
             self.global_map_network = nn.Sequential(
-                nn.LazyConv2d(32, 8, stride=4),
+                nn.Conv2d(32, 8, stride=4),
                 nn.ReLU(),
-                nn.LazyConv2d(64, 4, stride=2),
+                nn.Conv2d(64, 4, stride=2),
                 nn.ReLU(),
-                nn.LazyConv2d(64, 3, stride=1),
+                nn.Conv2d(64, 3, stride=1),
                 nn.ReLU(),
                 nn.Flatten(),
                 nn.Linear(480, cnn_output_dim),
@@ -1172,7 +1173,7 @@ class MultiConvolutionalPolicy(nn.Module):
             nn.Flatten(),
         )
 
-        n_flatten = 256 * 2 * 2
+        n_flatten = 256 * 2 # * 2
         self.minimap_cnn_linear = nn.Sequential(nn.Linear(n_flatten, cnn_output_dim), nn.ReLU())
 
         self.poke_move_ids_embedding = nn.Embedding(167, 8, padding_idx=0)

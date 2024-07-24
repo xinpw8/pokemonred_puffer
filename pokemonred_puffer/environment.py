@@ -406,6 +406,9 @@ class RedGymEnv(Env):
         }
 
         self.observation_space = spaces.Dict(obs_space)
+    
+
+
 
         self.register_hooks()
         if not self.headless:
@@ -1005,8 +1008,7 @@ class RedGymEnv(Env):
     
     def _get_obs(self):
         return self.render()
-    
-    
+
     # def _get_obs(self):
     #     _, wBagItems = self.pyboy.symbol_lookup("wBagItems")
     #     bag = np.array(self.pyboy.memory[wBagItems : wBagItems + 40], dtype=np.uint8)
