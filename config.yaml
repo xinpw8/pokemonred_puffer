@@ -55,34 +55,34 @@ env:
   frame_stacks: 1
   perfect_ivs: True
   reduce_res: True
-  two_bit: True
+  two_bit: False # True (testing)
   fixed_x: False
   use_global_map: False
   log_frequency: 5000 # 1000
-  infinite_money: True
-  auto_flash: True
-  auto_pokeflute: True
-  auto_teach_cut: True
-  auto_use_cut: True
-  auto_teach_surf: True
-  auto_use_surf: True
-  auto_teach_strength: True
-  auto_teach_fly: True
-  auto_solve_strength_puzzles: True
-  disable_wild_encounters: True
+  infinite_money: False # True (testing)
+  auto_flash: False # True (testing)
+  auto_pokeflute: False # True (testing)
+  auto_teach_cut: False # True (testing)
+  auto_use_cut: False # True (testing)
+  auto_teach_surf: False # True (testing)
+  auto_use_surf: False # True (testing)
+  auto_teach_strength: False # True (testing)
+  auto_teach_fly: False # True (testing)
+  auto_solve_strength_puzzles: False # True (testing)
+  disable_wild_encounters: False # True (testing)
   disable_ai_actions: False
-  skip_rocket_hideout_bool: True
-  skip_silph_co_bool: True
-  skip_safari_zone_bool: True
-  put_poke_flute_in_bag_bool: True
-  put_silph_scope_in_bag_bool: True
-  put_bicycle_in_bag_bool: True
-  put_strength_in_bag_bool: True
-  put_surf_in_bag_bool: True
-  put_cut_in_bag_bool: True
+  skip_rocket_hideout_bool: False # True (testing)
+  skip_silph_co_bool: False # True (testing)
+  skip_safari_zone_bool: False # True (testing)
+  put_poke_flute_in_bag_bool: False # True (testing)
+  put_silph_scope_in_bag_bool: False # True (testing)
+  put_bicycle_in_bag_bool: False # True (testing)
+  put_strength_in_bag_bool: False # True (testing)
+  put_surf_in_bag_bool: False # True (testing)
+  put_cut_in_bag_bool: False # True (testing)
   auto_remove_all_nonuseful_items: False
   item_testing: False
-  heal_health_and_pp: True
+  heal_health_and_pp: False # True (testing)
   catch_stuck_state: False
   complete_all_previous_badge_bool: False
 
@@ -116,7 +116,7 @@ env:
   load_states_on_start_dir: saved_states/general_saved_states # load_states_on_start
   general_saved_state_dir: saved_states/general_saved_states
   save_each_env_state_freq: 5000000
-  save_all_env_states_bool: True
+  save_all_env_states_bool: False # True (testing)
   save_furthest_map_states: False
   save_state: False
   load_states_on_start: False
@@ -129,11 +129,11 @@ env:
   boey_early_stop: False # True  # resumed early stopping to ensure reward signal
   boey_action_freq: 24
   boey_init_state: has_pokedex_nballs_noanim.state
-  boey_max_steps: 30720000 # 1024 * 1000 * 30  # 30m steps
+  boey_max_steps: 24480 # 30720000 # 1024 * 1000 * 30  # 30m steps
   # boey_env_max_steps: env_max_steps
-  boey_print_rewards: True
+  boey_print_rewards: False
   boey_save_video: False
-  boey_fast_video: True
+  boey_fast_video: False
   boey_session_path: boey_session
   boey_gb_path: red.gb
   boey_debug: False
@@ -142,18 +142,18 @@ env:
   boey_reward_scale: 4
   boey_extra_buttons: False
   boey_restricted_start_menu: False
-  boey_noop_button: True
-  boey_swap_button: True
-  boey_enable_item_manager: True
+  boey_noop_button: False # True
+  boey_swap_button: False # True
+  boey_enable_item_manager: False
   boey_level_reward_badge_scale: 1.0
   # boey_randomize_first_ep_split_cnt: boey_num_cpu
   # boey_start_from_state_dir: boey_state_dir
   boey_save_state_dir: env19_release
   boey_explore_weight: 1.5  # 3
   boey_special_exploration_scale: 1.0  # double the exploration for special maps (caverns)
-  boey_enable_stage_manager: True
-  boey_enable_item_purchaser: True
-  boey_auto_skip_anim: True
+  boey_enable_stage_manager: False
+  boey_enable_item_purchaser: False
+  boey_auto_skip_anim: False # True (testing)
   boey_auto_skip_anim_frames: 8
   boey_early_stopping_min_reward: 2.0
   boey_total_envs: boey_num_cpu
@@ -189,9 +189,9 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 96 # 24 # 288 # 96 # 288 # 96
+  num_envs: 24 # 24 # 288 # 96 # 288 # 96
   num_workers: 24 # 24 # 24
-  env_batch_size: 32 # 72 # 32 # 72 # 8
+  env_batch_size: 24 # 32 # 72 # 32 # 72 # 8
   env_pool: False # True
   zero_copy: False
 
@@ -201,10 +201,10 @@ train:
   checkpoint_interval: 500
   save_overlay: True
   overlay_interval: 100
-  cpu_offload: False # False
+  cpu_offload: False # Should be False
   pool_kernel: [0]
   load_optimizer_state: False
-  use_rnn: False # True
+  use_rnn: True
   async_wrapper: False
   archive_states: False
 
@@ -342,7 +342,7 @@ rewards:
       rubbed_captains_back: 10.0
       beat_rocket_hideout_giovanni: 20.0 # 10 (low)
       rocket_hideout_events: 5.0
-      pokemon_tower_events: 0 # 10 # 5 (only 40%)
+      pokemon_tower_events: 5.0 # 10 # 5 (only 40%)
       rescued_mr_fuji: 10.0
       silph_co_events: 2.50 # 5 (too much b4)
       beat_silph_co_giovanni: 10.0

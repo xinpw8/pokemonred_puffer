@@ -1,3 +1,4 @@
+import torch
 from abc import abstractmethod
 import io
 import os
@@ -373,7 +374,7 @@ class RedGymEnv(Env):
         self.essential_map_locations = ESSENTIAL_MAP_LOCATIONS
 
         obs_space = {
-            "screen": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
+            # "screen": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
             "visited_mask": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
         #     "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
         #     "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
@@ -478,7 +479,7 @@ class RedGymEnv(Env):
             None,
         )
 
-    def setup_enable_wild_ecounters(self):
+    def setup_enable_wild_encounters(self):
         bank, addr = self.pyboy.symbol_lookup("TryDoWildEncounter.gotWildEncounterType")
         self.pyboy.hook_deregister(bank, addr)
 
@@ -853,14 +854,6 @@ class RedGymEnv(Env):
         self.has_lift_key_in_bag = False
         self.has_pokedoll_in_bag = False
         self.has_bicycle_in_bag = False
-
-        # self.has_lemonade_in_bag_reward = 0
-        # self.has_fresh_water_in_bag_reward = 0
-        # self.has_soda_pop_in_bag_reward = 0
-        # self.has_silph_scope_in_bag_reward = 0
-        # self.has_lift_key_in_bag_reward = 0
-        # self.has_pokedoll_in_bag_reward = 0
-        # self.has_bicycle_in_bag_reward = 0
         
     def reset_bag_item_rewards(self):        
         self.has_lemonade_in_bag_reward = 0
@@ -896,11 +889,19 @@ class RedGymEnv(Env):
 
 
     def render(self):
-        game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
+        game_pixels_render = self.screen.ndarray
+        # game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
 
         if self.reduce_res:
-            game_pixels_render = game_pixels_render[::2, ::2, :]
+            game_pixels_render = game_pixels_render[:, :, 0]
+            game_pixels_render = downscale_local_mean(game_pixels_render, (2, 2)).astype(np.uint8)
+            # game_pixels_render = game_pixels_render[::2, ::2, :]
 
+        reduced_frame = game_pixels_render
+        # print(f"Reduced frame shape: {reduced_frame.shape}")
+        self.boey_recent_frames[0] = reduced_frame
+        
+        
         player_x, player_y, map_n = self.get_game_coords()
         visited_mask = np.zeros_like(game_pixels_render)
         scale = 2 if self.reduce_res else 1
@@ -1001,192 +1002,13 @@ class RedGymEnv(Env):
         # logging.info(f'red_gym_env_v3_obs unpacked obs shapes: \n{red_gym_env_v3_obs["boey_image"].shape}, \n{red_gym_env_v3_obs["boey_minimap"].shape}, \n{red_gym_env_v3_obs["boey_minimap_sprite"].shape}, \n{red_gym_env_v3_obs["boey_minimap_warp"].shape}, \n{red_gym_env_v3_obs["boey_vector"].shape}, \n{red_gym_env_v3_obs["boey_map_ids"].shape}, \n{red_gym_env_v3_obs["boey_map_step_since"].shape}, \n{red_gym_env_v3_obs["boey_item_ids"].shape}, \n{red_gym_env_v3_obs["boey_item_quantity"].shape}, \n{red_gym_env_v3_obs["boey_poke_ids"].shape}, \n{red_gym_env_v3_obs["boey_poke_type_ids"].shape}, \n{red_gym_env_v3_obs["boey_poke_move_ids"].shape}, \n{red_gym_env_v3_obs["boey_poke_move_pps"].shape}, \n{red_gym_env_v3_obs["boey_poke_all"].shape}, \n{red_gym_env_v3_obs["boey_event_ids"].shape}, \n{red_gym_env_v3_obs["boey_event_step_since"].shape}')
 
         return {
-            "screen": game_pixels_render, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
+            # "screen": game_pixels_render, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
             "visited_mask": visited_mask, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
         } | ({"global_map": global_map} if self.use_global_map else {}) | red_gym_env_v3_obs
 
     
     def _get_obs(self):
         return self.render()
-
-    # def _get_obs(self):
-    #     _, wBagItems = self.pyboy.symbol_lookup("wBagItems")
-    #     bag = np.array(self.pyboy.memory[wBagItems : wBagItems + 40], dtype=np.uint8)
-    #     numBagItems = self.read_m("wNumBagItems")
-    #     bag[2 * numBagItems :] = 0
-
-    #     try:
-    #         map_n = self.read_m(0xD35E)
-    #         if 0 <= map_n < 247:
-    #             map_id = map_n
-    #         else:
-    #             map_id = 0
-    #             logging.info(f'env_id: {self.env_id}: Invalid map_id: {map_n}')
-    #     except Exception as e:
-    #         map_id = 0
-    #         logging.error(f'env_id: {self.env_id}: Error getting map_id: {e}')
-                    
-    #     return (
-    #         self.render()
-    #         | {
-    #             "direction": np.array(
-    #                 self.read_m("wSpritePlayerStateData1FacingDirection") // 4, dtype=np.uint8
-    #             ),
-    #             "cut_in_party": np.array(self.check_if_party_has_hm(0xF), dtype=np.uint8),
-    #             "surf_in_party": np.array(self.check_if_party_has_hm(0x39), dtype=np.uint8),
-    #             "strength_in_party": np.array(self.check_if_party_has_hm(0x46), dtype=np.uint8),
-    #             "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
-    #             "map_id": np.array(map_id, dtype=np.uint8),
-    #             "bag_items": bag[::2].copy(),
-    #             "bag_quantity": bag[1::2].copy(),
-    #         }
-    #         | {event: np.array(self.events.get_event(event)) for event in REQUIRED_EVENTS}
-    #     )
-        
-        
-        
-    ## OLD OLD Previous code - adding a bunch of new observations
-    # def render(self):
-    #     game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
-
-    #     if self.reduce_res:
-    #         game_pixels_render = game_pixels_render[::2, ::2, :]
-
-    #     player_x, player_y, map_n = self.get_game_coords()
-    #     # self.last_coords = (player_x, player_y, map_n)
-    #     visited_mask = np.zeros_like(game_pixels_render)
-    #     scale = 2 if self.reduce_res else 1
-
-    #     if self.read_m(0xD057) == 0:
-    #         gr, gc = local_to_global(player_y, player_x, map_n)
-
-    #         # Validate coordinates
-    #         if gr == 0 and gc == 0:
-    #             logging.warning(f"Invalid global coordinates for map_id {map_n}. Skipping visited_mask update.")
-    #             # visited_mask = np.zeros_like(game_pixels_render)
-    #             gr = 50
-    #             gc = 50
-
-    #         try:
-    #             # Ensure the indices are within bounds before slicing
-    #             if 0 <= gr - 4 and gr + 6 <= self.explore_map.shape[0] and 0 <= gc - 4 and gc + 6 <= self.explore_map.shape[1]:
-    #                 sliced_explore_map = self.explore_map[gr - 4 : gr + 6, gc - 4 : gc + 6]
-    #                 if sliced_explore_map.size > 0:  # Ensure the array is not empty
-    #                     visited_mask = (
-    #                         255
-    #                         * np.repeat(
-    #                             np.repeat(sliced_explore_map, 16 // scale, 0),
-    #                             16 // scale,
-    #                             -1,
-    #                         )
-    #                     ).astype(np.uint8)[6 // scale : -10 // scale, :]
-    #                     visited_mask = np.expand_dims(visited_mask, -1)
-    #                 else:
-    #                     logging.warning(f"env_id: {self.env_id}: Sliced explore map is empty for global coordinates: ({gr}, {gc})")
-    #                     visited_mask = np.zeros_like(game_pixels_render)
-    #             else:
-    #                 logging.warning(f"env_id: {self.env_id}: Coordinates out of bounds! global: ({gr}, {gc}) game: ({player_y}, {player_x}, {map_n})")
-    #                 visited_mask = np.zeros_like(game_pixels_render)
-    #         except Exception as e:
-    #             logging.error(f"env_id: {self.env_id}: Error while creating visited_mask: {e}")
-    #             visited_mask = np.zeros_like(game_pixels_render)
-
-    #     if self.use_global_map:
-    #         global_map = np.expand_dims(
-    #             255 * self.explore_map,
-    #             axis=-1,
-    #         ).astype(np.uint8)
-
-    #     if self.two_bit:
-    #         game_pixels_render = (
-    #             (
-    #                 np.digitize(
-    #                     game_pixels_render.reshape((-1, 4)), PIXEL_VALUES, right=True
-    #                 ).astype(np.uint8)
-    #                 << np.array([6, 4, 2, 0], dtype=np.uint8)
-    #             )
-    #             .sum(axis=1, dtype=np.uint8)
-    #             .reshape((-1, game_pixels_render.shape[1] // 4, 1))
-    #         )
-    #         visited_mask = (
-    #             (
-    #                 np.digitize(
-    #                     visited_mask.reshape((-1, 4)),
-    #                     np.array([0, 64, 128, 255], dtype=np.uint8),
-    #                     right=True,
-    #                 ).astype(np.uint8)
-    #                 << np.array([6, 4, 2, 0], dtype=np.uint8)
-    #             )
-    #             .sum(axis=1, dtype=np.uint8)
-    #             .reshape(game_pixels_render.shape)
-    #             .astype(np.uint8)
-    #         )
-    #         if self.use_global_map:
-    #             global_map = (
-    #                 (
-    #                     np.digitize(
-    #                         global_map.reshape((-1, 4)),
-    #                         np.array([0, 64, 128, 255], dtype=np.uint8),
-    #                         right=True,
-    #                     ).astype(np.uint8)
-    #                     << np.array([6, 4, 2, 0], dtype=np.uint8)
-    #                 )
-    #                 .sum(axis=1, dtype=np.uint8)
-    #                 .reshape(self.global_map_shape)
-    #             )
-
-    #     return {
-    #         "screen": game_pixels_render,
-    #         "visited_mask": visited_mask,
-    #     } | ({"global_map": global_map} if self.use_global_map else {})
-
-    # def _get_obs(self):
-    #     # player_x, player_y, map_n = self.get_game_coords()
-    #     _, wBagItems = self.pyboy.symbol_lookup("wBagItems")
-    #     bag = np.array(self.pyboy.memory[wBagItems : wBagItems + 40], dtype=np.uint8)
-    #     numBagItems = self.read_m("wNumBagItems")
-    #     # item ids start at 1 so using 0 as the nothing value is okay
-    #     bag[2 * numBagItems :] = 0
-        
-    #     try:
-    #         map_n = self.read_m(0xD35E)
-    #         if 0 <= map_n < 247:
-    #             map_id = map_n
-    #         else:
-    #             map_id = 0
-    #             logging.info(f'env_id: {self.env_id}: Invalid map_id: {map_n}')
-    #     except Exception as e:
-    #         map_id = 0
-    #         logging.error(f'env_id: {self.env_id}: Error getting map_id: {e}')
-                    
-    #     return (
-    #         self.render()
-    #         | {
-    #             "direction": np.array(
-    #                 self.read_m("wSpritePlayerStateData1FacingDirection") // 4, dtype=np.uint8
-    #             ),
-    #             # "reset_map_id": np.array(self.read_m("wLastBlackoutMap"), dtype=np.uint8),
-    #             # "battle_type": np.array(self.read_m("wIsInBattle") + 1, dtype=np.uint8),
-    #             # "cut_event": np.array(self.read_bit(0xD803, 0), dtype=np.uint8), ## got hm01 event
-    #             "cut_in_party": np.array(self.check_if_party_has_hm(0xF), dtype=np.uint8),
-    #             "surf_in_party": np.array(self.check_if_party_has_hm(0x39), dtype=np.uint8),
-    #             "strength_in_party": np.array(self.check_if_party_has_hm(0x46), dtype=np.uint8),
-    #             # "fly_in_party": np.array(self.check_if_party_has_hm(0x13), dtype=np.uint8),
-    #             # "x": np.array(player_x, dtype=np.uint8),
-    #             # "y": np.array(player_y, dtype=np.uint8),
-    #             # "map_id": np.array(map_n, dtype=np.uint8),
-    #             "badges": np.array(self.read_short("wObtainedBadges").bit_count(), dtype=np.uint8),
-    #             # "map_id": np.array(self.read_m(0xD35E), dtype=np.uint8),
-    #             "map_id": np.array(map_id, dtype=np.uint8),
-    #             "bag_items": bag[::2].copy(),
-    #             "bag_quantity": bag[1::2].copy(),
-    #             # "rival_3": np.array(self.read_m("wSSAnne2FCurScript") == 4, dtype=np.uint8),
-    #             # "game_corner_rocket": np.array(
-    #             #     self.missables.get_missable("HS_GAME_CORNER_ROCKET"), dtype=np.uint8
-    #             # ),
-    #         }
-    #         | {event: np.array(self.events.get_event(event)) for event in REQUIRED_EVENTS}
-    #     )
 
     def set_perfect_iv_dvs(self):
         party_size = self.safe_wpartycount
@@ -1368,6 +1190,9 @@ class RedGymEnv(Env):
        
     
     def step(self, action):
+        
+        self.run_action_on_emulator(action)
+        
         ## Boey step()
         self.boey_init_caches()
         # self.boey_check_if_early_done()
@@ -1494,7 +1319,7 @@ class RedGymEnv(Env):
         #         f'env_{self.env_id}: Step observation shape: {self._get_obs()["screen"].shape}'
         #     )
 
-        self.run_action_on_emulator(action)
+        # self.run_action_on_emulator(action)
         self.events = EventFlags(self.pyboy)
         self.missables = MissableFlags(self.pyboy)
         self.update_seen_coords()
@@ -1557,6 +1382,12 @@ class RedGymEnv(Env):
         if self.save_video and reset and not self.only_record_stuck_state:
             self.full_frame_writer.close()
 
+        
+        # Ensure ob is a list of tensors
+        if isinstance(ob, list):
+            ob = [torch.tensor(o) if not isinstance(o, torch.Tensor) else o for o in ob]
+        else:
+            ob = torch.tensor(ob) if not isinstance(ob, torch.Tensor) else ob        
         return obs, new_reward, reset, False, info
         
     def run_action_on_emulator(self, action):
@@ -2874,7 +2705,7 @@ class RedGymEnv(Env):
                             current_repel_steps
                         )
                         if not self.disable_wild_encounters:
-                            self.setup_enable_wild_ecounters()
+                            self.setup_enable_wild_encounters()
                         break
 
     def solve_switch_strength_puzzle(self):
@@ -2904,7 +2735,7 @@ class RedGymEnv(Env):
                         current_repel_steps
                     )
                     if not self.disable_wild_encounters:
-                        self.setup_enable_wild_ecounters()
+                        self.setup_enable_wild_encounters()
                     break
 
                 
@@ -3194,9 +3025,11 @@ class RedGymEnv(Env):
             WindowEvent.RELEASE_BUTTON_B
         ]
 
-
-        self.boey_noop_button_index = self.boey_valid_actions.index(WindowEvent.PASS)
-        self.boey_swap_button_index = self.boey_valid_actions.index(988)
+        if self.boey_noop_button:
+            self.boey_noop_button_index = self.boey_valid_actions.index(WindowEvent.PASS)
+        if self.boey_swap_button:
+            self.boey_swap_button_index = self.boey_valid_actions.index(988)
+            
         self.boey_output_shape = (144//2, 160//2)
         self.boey_mem_padding = 2
         self.boey_memory_height = 8
@@ -3601,19 +3434,23 @@ class RedGymEnv(Env):
             
         # # do not update if is warping
         if not self.boey_is_warping:
-            if y >= self.boey_seen_map_dict[cur_map_id].shape[0] or x >= self.boey_seen_map_dict[cur_map_id].shape[1]:
-                self.boey_stuck_cnt += 1
-                print(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.boey_seen_map_dict[cur_map_id].shape}')
-                self.boey_seen_map_dict[cur_map_id][y, x] = self.boey_step_count
-                print(f'env_id: {self.env_id}, environment.py -> boey_update_seen_map_dict(): ERROR1: env: {self.env_id}, x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]})')
-                if self.boey_stuck_cnt > 50:
-                    print(f'stucked for > 50 steps, force ES')
-                    self.boey_early_done = True
+            try:
+                if y >= self.boey_seen_map_dict[cur_map_id].shape[0] or x >= self.boey_seen_map_dict[cur_map_id].shape[1]:
+                    # self.boey_stuck_cnt += 1
+                    print(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.boey_seen_map_dict[cur_map_id].shape}')
+                    self.boey_seen_map_dict[cur_map_id][y, x] = self.boey_step_count
+                    print(f'env_id: {self.env_id}, environment.py -> boey_update_seen_map_dict(): ERROR1: env: {self.env_id}, x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]})')
+                    # if self.boey_stuck_cnt > 50:
+                    #     print(f'stucked for > 50 steps, force ES')
+                    #     self.boey_early_done = True
+                    #     self.boey_stuck_cnt = 0
+                    # print(f'ERROR2: last 10 map ids: {self.boey_last_10_map_ids}')
+                else:
                     self.boey_stuck_cnt = 0
-                # print(f'ERROR2: last 10 map ids: {self.boey_last_10_map_ids}')
-            else:
-                self.boey_stuck_cnt = 0
-                self.boey_seen_map_dict[cur_map_id][y, x] = self.boey_step_count
+                    self.boey_seen_map_dict[cur_map_id][y, x] = self.boey_step_count
+            except Exception as e:
+                logging.error(f'env_id: {self.env_id}, environment.py -> boey_update_seen_map_dict(): ERROR1: env: {self.env_id}, x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}, error: {e})')
+                pass
 
     def boey_get_badges(self):
         badge_count = ram_map.bit_count(ram_map.mem_val(self.pyboy, 0xD356))
@@ -4864,7 +4701,7 @@ class RedGymEnv(Env):
         result.append(is_swapping)
         return result
     
-    def get_wild_pokemon_obs(self):
+    def boey_get_wild_pokemon_obs(self):
         start_addr = 0xCFE5
         return self.boey_get_battle_base_pokemon_obs(start_addr, team=1)
 
@@ -5366,9 +5203,9 @@ class RedGymEnv(Env):
                 if len(selected_state_dirs) == 0:
                     raise ValueError('start_from_state_dir is empty')
                 # load the state randomly from the directory
-                state_dir = np.random.choice(selected_state_dirs)
-                print(f'env_id: {self.env_id}, load state {state_dir}, level: {self.boey_current_level}')
-                self.boey_load_state(state_dir)
+                # state_dir = np.random.choice(selected_state_dirs)
+                # print(f'env_id: {self.env_id}, load state {state_dir}, level: {self.boey_current_level}')
+                # self.boey_load_state(state_dir)
         if self.boey_current_level == 0:
             # print(f'env_id: {self.env_id}, level: {self.boey_current_level}')
             print(f'env_id: {self.env_id}, initializing... {"|" * (self.env_id % 10)}')
