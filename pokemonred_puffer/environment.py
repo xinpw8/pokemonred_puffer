@@ -392,7 +392,8 @@ class RedGymEnv(Env):
             'boey_minimap': spaces.Box(low=0, high=1, shape=(14, 9, 10), dtype=np.float32),
             'boey_minimap_sprite': spaces.Box(low=0, high=390, shape=(9, 10), dtype=np.int16),
             'boey_minimap_warp': spaces.Box(low=0, high=830, shape=(9, 10), dtype=np.int16),
-            'boey_vector': spaces.Box(low=-1, high=1, shape=(71,), dtype=np.float32), # (99,) if stage manager
+            # 'boey_vector': spaces.Box(low=-1, high=1, shape=(71,), dtype=np.float32), # (99,) if stage manager
+            'boey_vector': spaces.Box(low=-1, high=1, shape=(71,), dtype=np.float32), # 
             'boey_map_ids': spaces.Box(low=0, high=255, shape=(10,), dtype=np.uint8),
             'boey_map_step_since': spaces.Box(low=-1, high=1, shape=(10, 1), dtype=np.float32),
             'boey_item_ids': spaces.Box(low=0, high=255, shape=(20,), dtype=np.uint8),
@@ -979,12 +980,15 @@ class RedGymEnv(Env):
                     .reshape(self.global_map_shape)
                 )
 
+        if self.boey_recent_frames.shape != (3, 72, 80):
+            logging.info(f'env_id: {self.env_id}, self.boey_recent_frames shape: {self.boey_recent_frames.shape}')
+        
         red_gym_env_v3_obs = {
             'boey_image': self.boey_recent_frames, # (3, 72, 80),
             'boey_minimap': self.boey_get_minimap_obs(), # (14, 9, 10), 
             'boey_minimap_sprite': self.boey_get_minimap_sprite_obs(), # (9, 10), 
             'boey_minimap_warp': self.boey_get_minimap_warp_obs(), # (9, 10), 
-            'boey_vector': self.boey_get_all_raw_obs(), # (71,),
+            'boey_vector': self.boey_get_all_raw_obs(), # (71,), (58,)
             'boey_map_ids': self.boey_get_last_10_map_ids_obs(), # (10,),
             'boey_map_step_since': self.boey_get_last_10_map_step_since_obs(), # (10, 1),
             'boey_item_ids': self.boey_get_all_item_ids_obs(), # (20,),
@@ -1000,7 +1004,24 @@ class RedGymEnv(Env):
 
         # logging.info(f'game_pixels_render, visited_mask shapes: {game_pixels_render.shape}, {visited_mask.shape}')
         # logging.info(f'red_gym_env_v3_obs unpacked obs shapes: \n{red_gym_env_v3_obs["boey_image"].shape}, \n{red_gym_env_v3_obs["boey_minimap"].shape}, \n{red_gym_env_v3_obs["boey_minimap_sprite"].shape}, \n{red_gym_env_v3_obs["boey_minimap_warp"].shape}, \n{red_gym_env_v3_obs["boey_vector"].shape}, \n{red_gym_env_v3_obs["boey_map_ids"].shape}, \n{red_gym_env_v3_obs["boey_map_step_since"].shape}, \n{red_gym_env_v3_obs["boey_item_ids"].shape}, \n{red_gym_env_v3_obs["boey_item_quantity"].shape}, \n{red_gym_env_v3_obs["boey_poke_ids"].shape}, \n{red_gym_env_v3_obs["boey_poke_type_ids"].shape}, \n{red_gym_env_v3_obs["boey_poke_move_ids"].shape}, \n{red_gym_env_v3_obs["boey_poke_move_pps"].shape}, \n{red_gym_env_v3_obs["boey_poke_all"].shape}, \n{red_gym_env_v3_obs["boey_event_ids"].shape}, \n{red_gym_env_v3_obs["boey_event_step_since"].shape}')
-
+        
+        assert red_gym_env_v3_obs['boey_image'].shape == (self.boey_frame_stacks, self.boey_output_shape[0], self.boey_output_shape[1]), f'red_gym_env_v3_obs["image"].shape: {red_gym_env_v3_obs["boey_image"].shape}'
+        assert red_gym_env_v3_obs['boey_minimap'].shape == (14, 9, 10), f'red_gym_env_v3_obs["minimap"].shape: {red_gym_env_v3_obs["boey_minimap"].shape}'
+        assert red_gym_env_v3_obs['boey_minimap_sprite'].shape == (9, 10), f'red_gym_env_v3_obs["minimap_sprite"].shape: {red_gym_env_v3_obs["boey_minimap_sprite"].shape}'
+        assert red_gym_env_v3_obs['boey_minimap_warp'].shape == (9, 10), f'red_gym_env_v3_obs["minimap_warp"].shape: {red_gym_env_v3_obs["boey_minimap_warp"].shape}'
+        assert red_gym_env_v3_obs['boey_vector'].shape == (71, ), f'red_gym_env_v3_obs["vector"].shape: {red_gym_env_v3_obs["boey_vector"].shape}'
+        assert red_gym_env_v3_obs['boey_map_ids'].shape == (10, ), f'red_gym_env_v3_obs["map_ids"].shape: {red_gym_env_v3_obs["boey_map_ids"].shape}'
+        assert red_gym_env_v3_obs['boey_map_step_since'].shape == (10, 1), f'red_gym_env_v3_obs["map_step_since"].shape: {red_gym_env_v3_obs["boey_map_step_since"].shape}'
+        assert red_gym_env_v3_obs['boey_item_ids'].shape == (20, ), f'red_gym_env_v3_obs["item_ids"].shape: {red_gym_env_v3_obs["boey_item_ids"].shape}'
+        assert red_gym_env_v3_obs['boey_item_quantity'].shape == (20, 1), f'red_gym_env_v3_obs["item_quantity"].shape: {red_gym_env_v3_obs["boey_item_quantity"].shape}'
+        assert red_gym_env_v3_obs['boey_poke_ids'].shape == (12, ), f'red_gym_env_v3_obs["poke_ids"].shape: {red_gym_env_v3_obs["boey_poke_ids"].shape}'
+        assert red_gym_env_v3_obs['boey_poke_type_ids'].shape == (12, 2), f'red_gym_env_v3_obs["poke_type_ids"].shape: {red_gym_env_v3_obs["boey_poke_type_ids"].shape}'
+        assert red_gym_env_v3_obs['boey_poke_move_ids'].shape == (12, 4), f'red_gym_env_v3_obs["poke_move_ids"].shape: {red_gym_env_v3_obs["boey_poke_move_ids"].shape}'
+        assert red_gym_env_v3_obs['boey_poke_move_pps'].shape == (12, 4, 2), f'red_gym_env_v3_obs["poke_move_pps"].shape: {red_gym_env_v3_obs["boey_poke_move_pps"].shape}'
+        assert red_gym_env_v3_obs['boey_poke_all'].shape == (12, self.boey_n_pokemon_features), f'red_gym_env_v3_obs["poke_all"].shape: {red_gym_env_v3_obs["boey_poke_all"].shape}'
+        assert red_gym_env_v3_obs['boey_event_ids'].shape == (128, ), f'red_gym_env_v3_obs["event_ids"].shape: {red_gym_env_v3_obs["boey_event_ids"].shape}' # alleged to be (10,). actually (128,)
+        assert red_gym_env_v3_obs['boey_event_step_since'].shape == (128, 1), f'red_gym_env_v3_obs["event_step_since"].shape: {red_gym_env_v3_obs["boey_event_step_since"].shape}' # alleged to be (10, 1). actually (128, 1)
+        
         return {
             # "screen": game_pixels_render, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
             "visited_mask": visited_mask, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
@@ -1381,13 +1402,7 @@ class RedGymEnv(Env):
 
         if self.save_video and reset and not self.only_record_stuck_state:
             self.full_frame_writer.close()
-
-        
-        # Ensure ob is a list of tensors
-        if isinstance(ob, list):
-            ob = [torch.tensor(o) if not isinstance(o, torch.Tensor) else o for o in ob]
-        else:
-            ob = torch.tensor(ob) if not isinstance(ob, torch.Tensor) else ob        
+     
         return obs, new_reward, reset, False, info
         
     def run_action_on_emulator(self, action):
@@ -4898,6 +4913,7 @@ class RedGymEnv(Env):
         # max 249
         # padding_idx = 0
         # change dtype to uint8 to save space
+        
         return np.array(self.boey_last_10_event_ids[:, 0] + 1, dtype=np.uint8)
     
     def boey_get_all_event_step_since_obs(self):

@@ -215,14 +215,17 @@ class MultiConvolutionalPolicy(nn.Module):
     def encode_observations(self, observations):
         observations = observations.type(torch.uint8)
         observations = pufferlib.pytorch.nativize_tensor(observations, self.dtype)
-        
+
         if isinstance(observations, dict):
-            boey_image = observations['boey_image']
+            if 'boey_image' in observations:
+                boey_image = observations['boey_image']
+            else:
+                raise ValueError("Missing 'boey_image' in observations")
         else:
             raise ValueError("Expected observations to be a dictionary")
 
-        print(f"Initial boey_image shape: {boey_image.shape}")
-
+        # print(f"Initial boey_image shape: {boey_image.shape}")
+        # breakpoint()
         if boey_image.ndim == 3:
             boey_image = boey_image.unsqueeze(0)  # (1, 72, 80, 1)
         elif boey_image.ndim == 2:
@@ -236,47 +239,59 @@ class MultiConvolutionalPolicy(nn.Module):
         if boey_image.shape[-1] == 1:
             boey_image = boey_image.squeeze(-1)
 
-        print(f"Adjusted boey_image shape: {boey_image.shape}")
+        # print(f"Adjusted boey_image shape: {boey_image.shape}")
 
         boey_image = boey_image.float()
         img = self.cnn_linear(self.cnn(boey_image))
 
-        print(f"Image after CNN shape: {img.shape}")
-                
-        ## for (1, 72, 80, 1)    
-        # if boey_image.ndim == 3:
-        #     boey_image = boey_image.unsqueeze(0)
-        # elif boey_image.ndim == 2:
-        #     boey_image = boey_image.unsqueeze(0).unsqueeze(0)
+        # print(f"Image after CNN shape: {img.shape}")
 
-        boey_image = boey_image.float()
-        img = self.cnn_linear(self.cnn(boey_image))
-        
-        minimap_sprite = observations['boey_minimap_sprite'].to(torch.int)
-        embedded_minimap_sprite = self.minimap_sprite_embedding(minimap_sprite)
-        embedded_minimap_sprite = embedded_minimap_sprite.permute(0, 3, 1, 2)
+        if 'boey_minimap_sprite' in observations:
+            minimap_sprite = observations['boey_minimap_sprite'].to(torch.int)
+            embedded_minimap_sprite = self.minimap_sprite_embedding(minimap_sprite)
+            embedded_minimap_sprite = embedded_minimap_sprite.permute(0, 3, 1, 2)
+        else:
+            embedded_minimap_sprite = None
 
-        minimap_warp = observations['boey_minimap_warp'].to(torch.int)
-        embedded_minimap_warp = self.minimap_warp_embedding(minimap_warp)
-        embedded_minimap_warp = embedded_minimap_warp.permute(0, 3, 1, 2)
+        if 'boey_minimap_warp' in observations:
+            minimap_warp = observations['boey_minimap_warp'].to(torch.int)
+            embedded_minimap_warp = self.minimap_warp_embedding(minimap_warp)
+            embedded_minimap_warp = embedded_minimap_warp.permute(0, 3, 1, 2)
+        else:
+            embedded_minimap_warp = None
 
-        minimap = observations['boey_minimap'].float()
-        minimap = torch.cat([minimap, embedded_minimap_sprite, embedded_minimap_warp], dim=1)
-        minimap = self.minimap_cnn_linear(self.minimap_cnn(minimap))
+        if 'boey_minimap' in observations:
+            minimap = observations['boey_minimap'].float()
+            minimap = torch.cat([minimap, embedded_minimap_sprite, embedded_minimap_warp], dim=1)
+            minimap = self.minimap_cnn_linear(self.minimap_cnn(minimap))
+        else:
+            minimap = None
 
-        embedded_poke_move_ids = self.poke_move_ids_embedding(observations['boey_poke_move_ids'].to(torch.int))
-        poke_move_pps = observations['boey_poke_move_pps']
-        poke_moves = torch.cat([embedded_poke_move_ids, poke_move_pps], dim=-1)
-        poke_moves = self.move_fc_relu(poke_moves)
-        poke_moves = self.move_max_pool(poke_moves).squeeze(-2)
+        if 'boey_poke_move_ids' in observations:
+            embedded_poke_move_ids = self.poke_move_ids_embedding(observations['boey_poke_move_ids'].to(torch.int))
+            poke_move_pps = observations['boey_poke_move_pps']
+            poke_moves = torch.cat([embedded_poke_move_ids, poke_move_pps], dim=-1)
+            poke_moves = self.move_fc_relu(poke_moves)
+            poke_moves = self.move_max_pool(poke_moves).squeeze(-2)
+        else:
+            poke_moves = None
 
-        embedded_poke_type_ids = self.poke_type_ids_embedding(observations['boey_poke_type_ids'].to(torch.int))
-        poke_types = torch.sum(embedded_poke_type_ids, dim=-2)
+        if 'boey_poke_type_ids' in observations:
+            embedded_poke_type_ids = self.poke_type_ids_embedding(observations['boey_poke_type_ids'].to(torch.int))
+            poke_types = torch.sum(embedded_poke_type_ids, dim=-2)
+        else:
+            poke_types = None
 
-        embedded_poke_ids = self.poke_ids_embedding(observations['boey_poke_ids'].to(torch.int))
-        poke_ids = embedded_poke_ids
+        if 'boey_poke_ids' in observations:
+            embedded_poke_ids = self.poke_ids_embedding(observations['boey_poke_ids'].to(torch.int))
+            poke_ids = embedded_poke_ids
+        else:
+            poke_ids = None
 
-        poke_stats = observations['boey_poke_all']
+        if 'boey_poke_all' in observations:
+            poke_stats = observations['boey_poke_all']
+        else:
+            poke_stats = None
 
         pokemon_concat = torch.cat([poke_moves, poke_types, poke_ids, poke_stats], dim=-1)
         pokemon_features = self.poke_fc_relu(pokemon_concat)
@@ -289,25 +304,37 @@ class MultiConvolutionalPolicy(nn.Module):
         poke_opp_head = self.poke_opp_head(opp_pokemon_features)
         poke_opp_head = self.poke_opp_head_max_pool(poke_opp_head).squeeze(-2)
 
-        embedded_item_ids = self.item_ids_embedding(observations['boey_item_ids'].to(torch.int))
-        item_quantity = observations['boey_item_quantity']
-        item_concat = torch.cat([embedded_item_ids, item_quantity], dim=-1)
-        item_features = self.item_ids_fc_relu(item_concat)
-        item_features = self.item_ids_max_pool(item_features).squeeze(-2)
+        if 'boey_item_ids' in observations:
+            embedded_item_ids = self.item_ids_embedding(observations['boey_item_ids'].to(torch.int))
+            item_quantity = observations['boey_item_quantity']
+            item_concat = torch.cat([embedded_item_ids, item_quantity], dim=-1)
+            item_features = self.item_ids_fc_relu(item_concat)
+            item_features = self.item_ids_max_pool(item_features).squeeze(-2)
+        else:
+            item_features = None
 
-        embedded_event_ids = self.event_ids_embedding(observations['boey_event_ids'].to(torch.int))
-        event_step_since = observations['boey_event_step_since']
-        event_concat = torch.cat([embedded_event_ids, event_step_since], dim=-1)
-        event_features = self.event_ids_fc_relu(event_concat)
-        event_features = self.event_ids_max_pool(event_features).squeeze(-2)
+        if 'boey_event_ids' in observations:
+            embedded_event_ids = self.event_ids_embedding(observations['boey_event_ids'].to(torch.int))
+            event_step_since = observations['boey_event_step_since']
+            event_concat = torch.cat([embedded_event_ids, event_step_since], dim=-1)
+            event_features = self.event_ids_fc_relu(event_concat)
+            event_features = self.event_ids_max_pool(event_features).squeeze(-2)
+        else:
+            event_features = None
 
-        embedded_map_ids = self.map_ids_embedding(observations['boey_map_ids'].to(torch.int))
-        map_step_since = observations['boey_map_step_since']
-        map_concat = torch.cat([embedded_map_ids, map_step_since], dim=-1)
-        map_features = self.map_ids_fc_relu(map_concat)
-        map_features = self.map_ids_max_pool(map_features).squeeze(-2)
+        if 'boey_map_ids' in observations:
+            embedded_map_ids = self.map_ids_embedding(observations['boey_map_ids'].to(torch.int))
+            map_step_since = observations['boey_map_step_since']
+            map_concat = torch.cat([embedded_map_ids, map_step_since], dim=-1)
+            map_features = self.map_ids_fc_relu(map_concat)
+            map_features = self.map_ids_max_pool(map_features).squeeze(-2)
+        else:
+            map_features = None
 
-        vector = observations['boey_vector'].float()
+        if 'boey_vector' in observations:
+            vector = observations['boey_vector'].float()
+        else:
+            vector = None
 
         boey_features_list = [
             img,
@@ -315,11 +342,11 @@ class MultiConvolutionalPolicy(nn.Module):
             poke_party_head,
             poke_opp_head,
             item_features,
-            event_features.squeeze(-1),
+            event_features.squeeze(-1) if event_features is not None else None,
             vector,
             map_features,
         ]
-        boey_features = [feature.float() for feature in boey_features_list]
+        boey_features = [feature.float() for feature in boey_features_list if feature is not None]
 
         # screen = observations["screen"]
         visited_mask = observations["visited_mask"]
@@ -378,3 +405,11 @@ class MultiConvolutionalPolicy(nn.Module):
         action = self.actor(flat_hidden)
         value = self.value_fn(flat_hidden)
         return action, value
+
+                
+    ## for (1, 72, 80, 1)    
+    # if boey_image.ndim == 3:
+    #     boey_image = boey_image.unsqueeze(0)
+    # elif boey_image.ndim == 2:
+    #     boey_image = boey_image.unsqueeze(0).unsqueeze(0)
+
