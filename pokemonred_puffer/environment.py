@@ -95,7 +95,7 @@ from pokemonred_puffer.constants import GYM_INFO, SPECIAL_MAP_IDS, IGNORED_EVENT
 from pokemonred_puffer.pokered_constants import MAP_DICT, MAP_ID_REF, WARP_DICT, WARP_ID_DICT, BASE_STATS, \
     SPECIES_TO_ID, ID_TO_SPECIES, CHARMAP, MOVES_INFO_DICT, MART_MAP_IDS, MART_ITEMS_ID_DICT, ITEM_TM_IDS_PRICES
 from pokemonred_puffer.ram_addresses import RamAddress as RAM
-# from pokemonred_puffer.stage_manager import StageManager, STAGE_DICT, POKECENTER_TO_INDEX_DICT
+from pokemonred_puffer.stage_manager import StageManager, STAGE_DICT, POKECENTER_TO_INDEX_DICT
 from skimage.transform import downscale_local_mean
 
 LEANKE_PARTY_LEVEL_ADDR = [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]
@@ -1240,8 +1240,8 @@ class RedGymEnv(Env):
         # self.boey_update_heal_reward()
         self.boey_update_num_poke()
         # self.boey_update_num_mon_in_box()
-        # if self.boey_enable_stage_manager:
-        #     self.boey_update_stage_manager()
+        if self.boey_enable_stage_manager:
+            self.boey_update_stage_manager()
 
         new_reward = self.boey_update_reward()
         
@@ -4948,17 +4948,17 @@ class RedGymEnv(Env):
         else:
             return 0
         
-    # def boey_get_stage_obs(self):
-    #     # set stage obs to 14 for now
-    #     if not self.boey_enable_stage_manager:
-    #         return np.zeros(28, dtype=np.uint8)
-    #     # self.boey_stage_manager.n_stage_started : int
-    #     # self.boey_stage_manager.n_stage_ended : int
-    #     # 28 elements, 14 n_stage_started, 14 n_stage_ended
-    #     result = np.zeros(28, dtype=np.uint8)
-    #     result[:self.boey_stage_manager.n_stage_started] = 1
-    #     result[14:14+self.boey_stage_manager.n_stage_ended] = 1
-    #     return result  # shape (28,)
+    def boey_get_stage_obs(self):
+        # set stage obs to 14 for now
+        if not self.boey_enable_stage_manager:
+            return np.zeros(28, dtype=np.uint8)
+        # self.boey_stage_manager.n_stage_started : int
+        # self.boey_stage_manager.n_stage_ended : int
+        # 28 elements, 14 n_stage_started, 14 n_stage_ended
+        result = np.zeros(28, dtype=np.uint8)
+        result[:self.boey_stage_manager.n_stage_started] = 1
+        result[14:14+self.boey_stage_manager.n_stage_ended] = 1
+        return result  # shape (28,)
     
     def boey_get_all_raw_obs(self):
         obs = []
@@ -5288,8 +5288,8 @@ class RedGymEnv(Env):
             self.boey_hideout_elevator_maps = []
             self.boey_use_mart_count = 0
             self.boey_use_pc_swap_count = 0
-            # if self.boey_enable_stage_manager:
-            #     self.boey_stage_manager = StageManager()
+            if self.boey_enable_stage_manager:
+                self.boey_stage_manager = StageManager()
             self.boey_stage_manager = False
             # self._boey_replace_ss_ticket_w_
             self.boey_progress_reward = self.boey_get_game_state_reward()
@@ -5395,8 +5395,8 @@ class RedGymEnv(Env):
         # set all past reward to current total reward, so that the agent will not be penalized for the first step
         self.boey_past_rewards[1:] = self.boey_past_rewards[0] - (self.boey_early_stopping_min_reward * self.boey_reward_scale)
         self.boey_reset_count += 1
-        # if self.boey_enable_stage_manager:
-        #     self.boey_update_stage_manager()
+        if self.boey_enable_stage_manager:
+            self.boey_update_stage_manager()
         
     def boey_init_map_mem(self):
         self.boey_seen_coords = {}
