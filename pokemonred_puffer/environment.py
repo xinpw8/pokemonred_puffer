@@ -1226,6 +1226,7 @@ class RedGymEnv(Env):
         self.boey_update_seen_map_dict()
         # self.boey_update_visited_pokecenter_list()
         self.boey_recent_frames = np.roll(self.boey_recent_frames, 1, axis=0)
+        assert self.boey_recent_frames.shape == (3, 72, 80), f'self.boey_recent_frames shape: {self.boey_recent_frames.shape}'
         # self.boey_minor_patch() ## Hugely complex; for Safari Zone
 
 

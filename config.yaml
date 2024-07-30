@@ -170,14 +170,14 @@ train:
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
   total_timesteps: 100_000_000_000
-  batch_size: 65536 
+  batch_size: 8192 # 65536 8192, for testing
   minibatch_size: 2048
   learning_rate: 2.0e-4
   anneal_lr: False
   gamma: 0.998
   gae_lambda: 0.95
   num_minibatches: 4
-  update_epochs: 3
+  update_epochs: 1 # 3  1, for testing
   norm_adv: True
   clip_coef: 0.1
   clip_vloss: True
@@ -199,12 +199,12 @@ train:
   data_dir: runs
   save_checkpoint: False
   checkpoint_interval: 500
-  save_overlay: True
+  save_overlay: False # True False, for testing
   overlay_interval: 100
   cpu_offload: False # Should be False
   pool_kernel: [0]
   load_optimizer_state: False
-  use_rnn: True
+  use_rnn: False # True False, for testing
   async_wrapper: False
   archive_states: False
 
