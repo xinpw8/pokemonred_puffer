@@ -1,218 +1,117 @@
+from pdb import set_trace as T
+
 import torch
-from torch import nn
+import torch.nn as nn
 
-from pokemonred_puffer.data_files.events import REQUIRED_EVENTS
-from pokemonred_puffer.data_files.items import Items as ItemsThatGuy
 import pufferlib.emulation
-import pufferlib.models
 import pufferlib.pytorch
+import pufferlib.spaces
+import pufferlib.models
+from pokemonred_puffer.policies.multi_convolutional import MultiConvolutionalPolicy, MultiConvolutionalRNN
+from pokemonred_puffer import data
 
 
-from pokemonred_puffer.environment import PIXEL_VALUES
-pufferlib.pytorch.nativize_tensor = torch.compiler.disable(pufferlib.pytorch.nativize_tensor)
-
-# Because torch.nn.functional.one_hot cannot be traced by torch as of 2.2.0
-def one_hot(tensor, num_classes):
-    index = torch.arange(0, num_classes, device=tensor.device)
-    return (tensor.view([*tensor.shape, 1]) == index.view([1] * tensor.ndim + [num_classes])).to(
-        torch.int64
-    )
-
-
-class MultiConvolutionalRNN(pufferlib.models.LSTMWrapper):
+class ConvolutionalRNN(MultiConvolutionalRNN):
     def __init__(self, env, policy, input_size=512, hidden_size=512, num_layers=1):
         super().__init__(env, policy, input_size, hidden_size, num_layers)
-
-## 0.7 below
-# class RecurrentMultiConvolutionalWrapper(pufferlib.models.RecurrentWrapper):
-#     def __init__(self, env, policy, input_size=512, hidden_size=512, num_layers=1):
-#         super().__init__(env, policy, input_size, hidden_size, num_layers)
-
-
-# class MultiConvolutionalPolicy(pufferlib.models.Policy):
-#     def __init__(
-#         self,
-#         env,
-#         hidden_size=512,
-#         channels_last: bool = True,
-#         downsample: int = 1,
-#     ):
-#         super().__init__(env)
-#         self.num_actions = self.action_space.n
-#         self.channels_last = channels_last
-#         self.downsample = downsample
-#         self.screen_network = nn.Sequential(
-#             nn.LazyConv2d(32, 8, stride=4),
-#             nn.ReLU(),
-#             nn.LazyConv2d(64, 4, stride=2),
-#             nn.ReLU(),
-#             nn.LazyConv2d(64, 3, stride=1),
-#             nn.ReLU(),
-#             nn.Flatten(),
-#         )
-
-
-# We dont inherit from the pufferlib convolutional because we wont be able
-# to easily call its __init__ due to our usage of lazy layers
-# All that really means is a slightly different forward
-class MultiConvolutionalPolicy(nn.Module):
+    
+class Policy(MultiConvolutionalPolicy):
     def __init__(
-        self,
-        env: pufferlib.emulation.GymnasiumPufferEnv,
-        hidden_size: int = 512,
-        channels_last: bool = True,
-        downsample: int = 1,
-    ):
+        self, 
+        env: pufferlib.emulation.GymnasiumPufferEnv, 
+        *args, 
+        framestack: int=4, 
+        flat_size: int=64*5*6, 
+        input_size: int=512, 
+        hidden_size: int=512, 
+        output_size: int=512, 
+        channels_last: bool=True, 
+        downsample: int=1, 
+        **kwargs
+        ): #64*6*6+90
         super().__init__()
-        self.dtype = pufferlib.pytorch.nativize_dtype(env.emulated)
-        self.num_actions = env.single_action_space.n
         self.channels_last = channels_last
         self.downsample = downsample
-        self.screen_network = nn.Sequential(
-            nn.LazyConv2d(32, 8, stride=4),
+        self.flat_size = flat_size
+        self.dtype = pufferlib.pytorch.nativize_dtype(env.emulated)
+        self.actor = pufferlib.pytorch.layer_init(nn.Linear(hidden_size, env.single_action_space.n), std=0.01)
+        self.value_fn = pufferlib.pytorch.layer_init(nn.Linear(output_size, 1), std=1)
+        self.obs = env.unwrapped.env.observation_space
+        self.extra_obs = env.unwrapped.env.extra_obs # env.unwrapped is GymnasiumPufferEnv
+        if self.extra_obs:
+            self.flat_size = self.flat_size + 11
+        self.add_boey_obs = env.unwrapped.env.add_boey_obs
+        if self.add_boey_obs:
+            self.boey_nets() # env.unwrapped.env.observation_space
+            self.flat_size = self.flat_size + 1334
+
+        self.screen= nn.Sequential(
+            pufferlib.pytorch.layer_init(nn.Conv2d(framestack, 32, 8, stride=4)),
             nn.ReLU(),
-            nn.LazyConv2d(64, 4, stride=2),
+            pufferlib.pytorch.layer_init(nn.Conv2d(32, 64, 4, stride=2)),
             nn.ReLU(),
-            nn.LazyConv2d(64, 3, stride=1),
+            pufferlib.pytorch.layer_init(nn.Conv2d(64, 64, 3, stride=1)),
             nn.ReLU(),
             nn.Flatten(),
+            # pufferlib.pytorch.layer_init(nn.Linear(flat_size, hidden_size)),
+            # nn.ReLU(),
         )
-        self.encode_linear = nn.Sequential(
-            nn.LazyLinear(hidden_size),
-            nn.ReLU(),
-        )
-        self.boey_nets() # init weird leanke thing
-        self.actor = nn.LazyLinear(self.num_actions)
-        self.value_fn = nn.LazyLinear(1)
+        self.embedding = torch.nn.Embedding(250, 4, dtype=torch.float32) # 6? or 4?
+        
+        self.linear= nn.Sequential(
+            pufferlib.pytorch.layer_init(nn.Linear(self.flat_size, hidden_size)),
+            nn.ReLU(),)
 
-        self.two_bit = env.unwrapped.env.two_bit
-        # self.use_fixed_x = env.unwrapped.env.fixed_x
-        self.use_global_map = env.unwrapped.env.use_global_map
+    def encode_observations(self, observations):
+        observation = pufferlib.pytorch.nativize_tensor(observations, self.dtype)
         
+        # if 'fixed_window' in observation:
+        #     screens = torch.cat([
+        #         observation['screen'], 
+        #         observation['fixed_window'],
+        #         ], dim=-1)
+        # else:
+        #     screens = observation['screen']
         
-        self.add_boey_obs = getattr(env.unwrapped.env, 'add_boey_obs', False)
-        
-        
-        if self.use_global_map:
-            self.global_map_network = nn.Sequential(
-                nn.LazyConv2d(32, 8, stride=4),
-                nn.ReLU(),
-                nn.LazyConv2d(64, 4, stride=2),
-                nn.ReLU(),
-                nn.LazyConv2d(64, 3, stride=1),
-                nn.ReLU(),
-                nn.Flatten(),
-                nn.LazyLinear(480),
-                nn.ReLU(),
-            )
+        # if self.channels_last:
+        #     screen = screens.permute(0, 3, 1, 2)
+        # if self.downsample > 1:
+        #     screen = screens[:, :, ::self.downsample, ::self.downsample]
 
-        
-        self.register_buffer("screen_buckets", torch.tensor(PIXEL_VALUES, dtype=torch.uint8), persistent=False)
-        self.register_buffer("linear_buckets", torch.tensor([0, 64, 128, 255], dtype=torch.uint8), persistent=False)
-        self.register_buffer("unpack_mask", torch.tensor([0xC0, 0x30, 0x0C, 0x03], dtype=torch.uint8), persistent=False)
-        self.register_buffer("unpack_shift", torch.tensor([6, 4, 2, 0], dtype=torch.uint8), persistent=False)
-        self.register_buffer("badge_buffer", torch.arange(8) + 1, persistent=False)
-        
-        self.map_embeddings = torch.nn.Embedding(0xF7, 4, dtype=torch.float32)
-        item_count = max(ItemsThatGuy._value2member_map_.keys())
-        self.item_embeddings = torch.nn.Embedding(item_count, int(item_count**0.25 + 1), dtype=torch.float32)
+        # if self.extra_obs:
+        #     cat = torch.cat(
+        #     (
+        #         self.screen(screen.float() / 255.0).squeeze(1),
+        #         self.embedding(observation["map_n"].long()).squeeze(1),
+        #         observation["flute"].float(),
+        #         observation["bike"].float(),
+        #         observation["hideout"].float(),
+        #         observation["tower"].float(),
+        #         observation["silphco"].float(),
+        #         observation["snorlax_12"].float(),
+        #         observation["snorlax_16"].float(),
+        #     ), # + tuple(observation[f"{event}"].float() for event in data.events_list),
+        #     dim=-1,
+        # )
+        # else:
+        #     cat = self.screen(screen.float() / 255.0),
+
+        if self.add_boey_obs:
+                boey_obs = self.boey_obs(observation)
+                cat = torch.cat([cat, boey_obs], dim=-1)
+
+        return self.linear(cat), None
+
+    def decode_actions(self, flat_hidden, lookup, concat=None):
+        action = self.actor(flat_hidden)
+        value = self.value_fn(flat_hidden)
+        return action, value
     
     def forward(self, observations):
         hidden, lookup = self.encode_observations(observations)
         actions, value = self.decode_actions(hidden, lookup)
         return actions, value
-        
-    def encode_observations(self, observations):
-        observations = observations.type(torch.uint8)  # Undo bad cleanrl cast
-        observations = pufferlib.pytorch.nativize_tensor(observations, self.dtype)
-
-        screen = observations["screen"]
-        visited_mask = observations["visited_mask"]
-        restored_shape = (screen.shape[0], screen.shape[1], screen.shape[2] * 4, screen.shape[3])
-        if self.use_global_map:
-            global_map = observations["global_map"]
-            restored_global_map_shape = (
-                global_map.shape[0],
-                global_map.shape[1],
-                global_map.shape[2] * 4,
-                global_map.shape[3],
-            )
-
-        if self.two_bit:
-            screen = torch.index_select(
-                self.screen_buckets,
-                0,
-                ((screen.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift).flatten().int(),
-            ).reshape(restored_shape)
-            visited_mask = torch.index_select(
-                self.linear_buckets,
-                0,
-                ((visited_mask.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
-                .flatten()
-                .int(),
-            ).reshape(restored_shape)
-            if self.use_global_map:
-                global_map = torch.index_select(
-                    self.linear_buckets,
-                    0,
-                    ((global_map.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
-                    .flatten()
-                    .int(),
-                ).reshape(restored_global_map_shape)
-                
-        badges = self.badge_buffer <= observations["badges"]
-        map_id = self.map_embeddings(observations["map_id"].long())
-        items = self.item_embeddings(observations["bag_items"].squeeze(1).long()).float() * (
-            observations["bag_quantity"].squeeze(1).float().unsqueeze(-1) / 100.0
-        )
-
-        # print(f'screen shape: {screen.shape}, visited mask shape: {visited_mask.shape}')
-        # if not self.use_fixed_x:
-        #     print(f'global_map shape: {global_map.shape}')
-        # else:
-        #     print(f'fixed_x shape: {fixed_x.shape}')
-
-        # if self.use_fixed_x:
-        #     image_observation = torch.cat((screen, visited_mask, fixed_x), dim=-1)
-        # else:
-        image_observation = torch.cat((screen, visited_mask), dim=-1)  # global_map), dim=-1)
-
-        if self.channels_last:
-            image_observation = image_observation.permute(0, 3, 1, 2)
-        if self.downsample > 1:
-            image_observation = image_observation[:, :, :: self.downsample, :: self.downsample]
-
-        # print(f'Image observation shape: {image_observation.shape}')
-        # print(f'Image observation size: {image_observation.size()}')
-        
-
-        boey_obs = self.boey_obs(observations)
-        
-        return self.encode_linear(
-            torch.cat(
-                (
-                    (self.screen_network(image_observation.float() / 255.0).squeeze(1)),
-                    one_hot(observations["direction"].long(), 4).float().squeeze(1),
-                    # one_hot(observations["battle_type"].long(), 4).float().squeeze(1),
-                    # observations["cut_event"].float(),
-                    observations["cut_in_party"].float(),
-                    observations["surf_in_party"].float(),
-                    observations["strength_in_party"].float(),
-                    map_id.squeeze(1),
-                    # observations["fly_in_party"].float(),
-                    badges.float().squeeze(1),
-                    items.flatten(start_dim=1),
-                    # observations["rival_3"].float(),
-                    # observations["game_corner_rocket"].float(),
-                    boey_obs,
-                )
-                + tuple(observations[event].float() for event in REQUIRED_EVENTS),
-                dim=-1,
-            )
-        ), None
-
-
-
+    
     def boey_obs(self, observation):
         if self.add_boey_obs:
           # img = self.image_cnn(observations['image'])  # (256, )
@@ -288,15 +187,13 @@ class MultiConvolutionalPolicy(nn.Module):
 
             map_concat = torch.cat([embedded_map_ids.squeeze(), map_step_since.squeeze()], dim=-1)  # (20, 17)
             map_features = self.map_ids_fc_relu(map_concat)  # (20, 16)
-            map_features = map_features.unsqueeze(0).unsqueeze(-1)  # (20, 16) -> (16, )
-            map_features = self.map_ids_max_pool(map_features).squeeze(-2).squeeze(-1)  # (20, 16) -> (16, )
+            map_features = map_features.unsqueeze(1)  # (20, 16) -> (16, )
+            map_features = self.map_ids_max_pool(map_features).squeeze(-2)  # (20, 16) -> (16, )
 
             # Raw vector
             vector = observation['vector']  # (99, )
 
             # Concat all features
-            map_features = map_features.squeeze(0)
-            # print(f'img: {img.shape}, minimap: {minimap.shape}, poke_party_head: {poke_party_head.shape}, poke_opp_head: {poke_opp_head.shape}, item_features: {item_features.shape}, event_features: {event_features.shape}, vector: {vector.shape}, map_features: {map_features.shape}')
             all_features = torch.cat([img, minimap, poke_party_head, poke_opp_head, item_features, event_features, vector, map_features], dim=-1)  # (410 + 256, )img,
 
         return all_features
@@ -449,21 +346,3 @@ class MultiConvolutionalPolicy(nn.Module):
 
         # self._features_dim = 410 + 256 + map_ids_emb_dim
         self._features_dim = 579 + 256 + map_ids_emb_dim + 512
-        # return self.encode_linear(
-        #     torch.cat(
-        #         (
-        #             (self.screen_network(image_observation.float() / 255.0).squeeze(1)),
-        #             one_hot(observations["direction"].long(), 4).float().squeeze(1),
-        #             one_hot(observations["battle_type"].long(), 4).float().squeeze(1),
-        #             observations["cut_event"].float(),
-        #             observations["cut_in_party"].float(),
-        #             badges.float().squeeze(1),
-        #         ),
-        #         dim=-1,
-        #     )
-        # ), None
-
-    def decode_actions(self, flat_hidden, lookup, concat=None):
-        action = self.actor(flat_hidden)
-        value = self.value_fn(flat_hidden)
-        return action, value

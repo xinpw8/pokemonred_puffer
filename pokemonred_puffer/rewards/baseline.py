@@ -19,6 +19,7 @@ class BaselineRewardEnv(RedGymEnv):
     def __init__(self, env_config: pufferlib.namespace, reward_config: pufferlib.namespace):
         super().__init__(env_config)
         self.reward_config = reward_config
+        self.step_count = self.unwrapped.step_count
 
     # TODO: make the reward weights configurable
     def get_game_state_reward(self):

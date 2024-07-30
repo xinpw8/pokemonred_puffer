@@ -36,6 +36,8 @@ debug:
     verbose: True
     env_pool: False
     load_optimizer_state: False
+    
+    add_boey_obs: True # add boey obs
     # swarm_frequency: 10
     # swarm_keep_pct: .1
 
@@ -120,6 +122,7 @@ env:
   load_furthest_map_n_on_reset: False
   synchronized_events_bool: False
 
+  add_boey_obs: True # add boey obs
 
 
 
@@ -175,6 +178,10 @@ wrappers:
   empty:
     - episode_stats.EpisodeStatsWrapper: {}
 
+  
+  boey_obs:
+    - boey_obs_encode.ObsWrapper: {}
+  
   baseline:
     - stream_wrapper.StreamWrapper:
         user: bet_bet_bet
@@ -224,6 +231,7 @@ wrappers:
         full_reset_frequency: 25
         jitter: 0
     - episode_stats.EpisodeStatsWrapper: {}
+
 
 rewards:
   baseline.BaselineRewardEnv:

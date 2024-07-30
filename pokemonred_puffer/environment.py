@@ -157,7 +157,10 @@ class RedGymEnv(Env):
         self.heal_health_and_pp = env_config.heal_health_and_pp
         self.catch_stuck_state = env_config.catch_stuck_state
         self.complete_all_previous_badge_bool = env_config.complete_all_previous_badge_bool
-                
+        
+        # boey obs init
+        self.add_boey_obs = env_config.add_boey_obs
+               
         self.previous_coords = None
         self.stuck_steps = 0
         self.test_event_index = 0
@@ -178,6 +181,7 @@ class RedGymEnv(Env):
         self.seen_stats_menu = 0
         self.seen_bag_menu = 0
         self.seen_action_bag_menu = 0
+        self.step_count = 0
         
         # events
         self.previous_true_events = {}
@@ -748,7 +752,8 @@ class RedGymEnv(Env):
         game_pixels_render = np.expand_dims(self.screen.ndarray[:, :, 1], axis=-1)
 
         if self.reduce_res:
-            game_pixels_render = game_pixels_render[::2, ::2, :]
+            game_pixels_render = self.screen.ndarray[::2, ::2, 1]
+            # game_pixels_render = game_pixels_render[::2, ::2, :]
 
         player_x, player_y, map_n = self.get_game_coords()
         # self.last_coords = (player_x, player_y, map_n)
@@ -2214,7 +2219,6 @@ class RedGymEnv(Env):
         self.pyboy.memory[0xD31F + index * 2] = 1  # Item quantity
         self.index_count += 1
         self.compact_bag()
-
     
     def set_hm_event_flags(self):
         # Addresses and bits for each HM event
@@ -2633,3 +2637,4 @@ class RedGymEnv(Env):
             self.pyboy.send_input(WindowEvent.PRESS_BUTTON_B)
             self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_B, delay=8)
             self.pyboy.tick(4 * self.action_freq, render=True)
+
