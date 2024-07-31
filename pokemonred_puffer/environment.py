@@ -100,7 +100,7 @@ class RedGymEnv(Env):
                         self.shared_event_flags[i] = 0
 
         self.video_dir = Path(env_config.video_dir)
-        # self.session_path = Path(env_config.session_path)
+        self.session_path = Path(env_config.session_path)
         # self.video_path = self.video_dir / self.session_path
         self.save_video = env_config.save_video
         self.save_final_state = env_config.save_final_state
@@ -108,8 +108,11 @@ class RedGymEnv(Env):
         self.headless = env_config.headless
         self.state_dir = Path(env_config.state_dir)
         self.init_state = env_config.init_state
+
         self.init_state_name = self.init_state
+    
         self.init_state_path = self.state_dir / f"{self.init_state_name}.state"
+
         self.action_freq = env_config.action_freq
         self.max_steps = env_config.max_steps
         self.fast_video = env_config.fast_video
@@ -158,8 +161,61 @@ class RedGymEnv(Env):
         self.catch_stuck_state = env_config.catch_stuck_state
         self.complete_all_previous_badge_bool = env_config.complete_all_previous_badge_bool
         
+        
+        
         # boey obs init
         self.add_boey_obs = env_config.add_boey_obs
+        self.s_path = env_config.session_path
+        self.s_path = Path(self.s_path)
+        self.save_final_state = env_config.save_final_state
+        self.print_rewards = env_config.print_rewards
+        self.vec_dim = 4320
+        self.headless = env_config.headless
+        self.num_elements = 20000
+        # self.init_state = env_config.init_state
+        self.act_freq = env_config.action_freq
+        self.max_steps = env_config.max_steps
+        self.early_stopping = env_config.early_stop # if 'early_stop' in env_config else None
+        self.early_stopping_min_reward = env_config.early_stopping_min_reward if 'early_stopping_min_reward' in env_config else 2.0
+        self.save_video = env_config.save_video
+        self.fast_video = env_config.fast_video
+        self.video_interval = 256 * self.act_freq
+        self.downsample_factor = 2
+        self.frame_stacks = 3
+        self.explore_weight = env_config.explore_weight if 'explore_weight' in env_config else 1
+        self.use_screen_explore = env_config.use_screen_explore if 'use_screen_explore' in env_config else True
+        self.randomize_first_ep_split_cnt = env_config.randomize_first_ep_split_cnt if 'randomize_first_ep_split_cnt' in env_config else 0
+        # self.similar_frame_dist = env_config.sim_frame_dist
+        self.reward_scale = env_config.reward_scale if 'reward_scale' in env_config else 1
+        self.extra_buttons = env_config.extra_buttons if 'extra_buttons' in env_config else False
+        self.noop_button = env_config.noop_button if 'noop_button' in env_config else False
+        self.swap_button = env_config.swap_button if 'swap_button' in env_config else True
+        self.restricted_start_menu = env_config.restricted_start_menu if 'restricted_start_menu' in env_config else False
+        self.level_reward_badge_scale = env_config.level_reward_badge_scale if 'level_reward_badge_scale' in env_config else 0
+        self.instance_id = env_config.instance_id if 'instance_id' in env_config else str(uuid.uuid4())[:8]
+        self.start_from_state_dir = env_config.start_from_state_dir if 'start_from_state_dir' in env_config else None
+        self.save_state_dir = env_config.save_state_dir if 'save_state_dir' in env_config else None
+        self.randomization = env_config.randomization if 'randomization' in env_config else 0
+        self.special_exploration_scale = env_config.special_exploration_scale if 'special_exploration_scale' in env_config else 0
+        self.enable_item_manager = env_config.enable_item_manager if 'enable_item_manager' in env_config else False
+        self.enable_stage_manager = env_config.enable_stage_manager if 'enable_stage_manager' in env_config else False
+        self.enable_item_purchaser = env_config.enable_item_purchaser if 'enable_item_purchaser' in env_config else False
+        self.auto_skip_anim = env_config.auto_skip_anim if 'auto_skip_anim' in env_config else False
+        self.auto_skip_anim_frames = env_config.auto_skip_anim_frames if 'auto_skip_anim_frames' in env_config else 8
+        self.env_config_id = env_config.env_id if 'env_id' in env_config else str(random.randint(1, 9999)).zfill(4)
+        self.env_config_max_steps = env_config.env_max_steps if 'env_max_steps' in env_config else []
+        self.total_envs = env_config.total_envs if 'total_envs' in env_config else 48
+        self.level_manager_eval_mode = env_config.level_manager_eval_mode if 'level_manager_eval_mode' in env_config else False
+        self.s_path.mkdir(exist_ok=True)
+        self.warmed_up = False  # for randomize_first_ep_split_cnt usage
+        self.reset_count = 0
+        self.all_runs = []
+        self.n_pokemon_features = 23
+        self.gym_info = GYM_INFO
+        self._last_episode_stats = None
+        self.print_debug = False
+        
+        
                
         self.previous_coords = None
         self.stuck_steps = 0
@@ -1946,6 +2002,9 @@ class RedGymEnv(Env):
         else:
             logging.warning(f"env_id: {self.env_id}: Furthest state file not found: {state_file}")
 
+    def load_state(self, state_file):
+        self.pyboy.load_state(state_file)
+    
     def get_items_in_bag(self) -> Iterable[int]:
         num_bag_items = self.read_m("wNumBagItems")
         _, addr = self.pyboy.symbol_lookup("wBagItems")
@@ -2638,3 +2697,63 @@ class RedGymEnv(Env):
             self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_B, delay=8)
             self.pyboy.tick(4 * self.action_freq, render=True)
 
+#############################
+### left off here
+    def update_last_10_map_ids(self):
+        current_modified_map_id = self.read_m(0xD35E) + 1
+        # check if current_modified_map_id is in last_10_map_ids
+        if current_modified_map_id == self.last_10_map_ids[0][0]:
+            return
+        else:
+            # if self.last_10_map_ids[0][0] != 0:
+            #     print(f'map changed from {MAP_ID_REF[self.last_10_map_ids[0][0] - 1]} to {MAP_ID_REF[current_modified_map_id - 1]} at step {self.step_count}')
+            self.last_10_map_ids = np.roll(self.last_10_map_ids, 1, axis=0)
+            self.last_10_map_ids[0] = [current_modified_map_id, self.time]
+            map_id = current_modified_map_id - 1
+            if map_id in [0x6C, 0xC2, 0xC6, 0x22]:
+                self.minor_patch_victory_road()
+            # elif map_id == 0x09:
+            if map_id not in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
+                if self.last_10_map_ids[1][0] - 1 in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
+                    # lost in elite 4
+                    self.elite_4_lost = True
+                    self.elite_4_started_step = None
+            if map_id == 0xF5:
+                # elite four first room
+                # reset elite 4 lost flag
+                if self.elite_4_lost:
+                    self.elite_4_lost = False
+                if self.elite_4_started_step is None:
+                    self.elite_4_started_step = self.time               
+
+    def update_last_10_coords(self):
+        current_coord = np.array([self.read_m(0xD362), self.read_m(0xD361)])
+        # check if current_coord is in last_10_coords
+        if (current_coord == self.last_10_coords[0]).all():
+            return
+        else:
+            self.last_10_coords = np.roll(self.last_10_coords, 1, axis=0)
+            self.last_10_coords[0] = current_coord                  
+            
+    
+    def update_seen_map_dict(self):
+        # if self.get_minimap_warp_obs()[4, 4] != 0:
+        #     return
+        cur_map_id = self.current_map_id - 1
+        x, y = self.current_coords
+        if cur_map_id not in self.seen_map_dict:
+            self.seen_map_dict[cur_map_id] = np.zeros((MAP_DICT[MAP_ID_REF[cur_map_id]]['height'], MAP_DICT[MAP_ID_REF[cur_map_id]]['width']), dtype=np.float32)
+            
+        # # do not update if is warping
+        if not self.is_warping:
+            if y >= self.seen_map_dict[cur_map_id].shape[0] or x >= self.seen_map_dict[cur_map_id].shape[1]:
+                self.stuck_cnt += 1
+                print(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.seen_map_dict[cur_map_id].shape}')
+                if self.stuck_cnt > 50:
+                    print(f'stucked for > 50 steps, force ES')
+                    self.early_done = True
+                    self.stuck_cnt = 0
+                # print(f'ERROR2: last 10 map ids: {self.last_10_map_ids}')
+            else:
+                self.stuck_cnt = 0
+                self.seen_map_dict[cur_map_id][y, x] = self.time

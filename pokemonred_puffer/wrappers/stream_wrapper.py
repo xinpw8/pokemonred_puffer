@@ -1,5 +1,7 @@
 import asyncio
 import json
+import gzip
+import os
 from multiprocessing import Lock, shared_memory
 
 import gymnasium as gym
@@ -41,8 +43,9 @@ class StreamWrapper(gym.Wrapper):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self.websocket = self.loop.run_until_complete(self.establish_wc_connection())
-        self.upload_interval = 300
+        self.upload_interval = 150 # 300
         self.steam_step_counter = 0
+        self.steam_step_counter_resets = 0
         self.coord_list = []
         if hasattr(env, "pyboy"):
             self.emulator = env.pyboy
@@ -50,6 +53,16 @@ class StreamWrapper(gym.Wrapper):
             self.emulator = env.game
         else:
             raise Exception("Could not find emulator!")
+        
+        # make folder for all env id coord files if it doesn't exist
+        if not os.path.exists("coords"):
+            os.makedirs("coords")
+        if not os.path.exists(f"coords/{self.env_id}"):
+            os.makedirs(f"coords/{self.env_id}")
+        directory_path = f"coords/{self.env_id}"
+        self.file_name = f"env_{self.env_id}_reset_{self.steam_step_counter_resets}_coords.json.gz"
+        self.file_path = f"{directory_path}/{self.file_name}"
+
         
     @property
     def x_pos(self):
@@ -87,8 +100,10 @@ class StreamWrapper(gym.Wrapper):
                     json.dumps({"metadata": self.stream_metadata, "coords": self.coord_list})
                 )
             )
+            self.steam_step_counter_resets += 1
+            self.save_coords_to_file() # write coord list to file
             self.steam_step_counter = 0
-            self.coord_list = []
+            self.coord_list = [] # keep coord list small
 
         self.steam_step_counter += 1
 
@@ -111,3 +126,9 @@ class StreamWrapper(gym.Wrapper):
 
     def reset(self, *args, **kwargs):
         return self.env.reset(*args, **kwargs)
+    
+    # Save the coordinates to a file
+    def save_coords_to_file(self):
+        with gzip.open(self.file_path, 'at') as f:
+            for coord in self.coord_list:
+                f.write(json.dumps(coord) + "\n")

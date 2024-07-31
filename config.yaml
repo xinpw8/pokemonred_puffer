@@ -46,8 +46,8 @@ env:
   save_final_state: True
   print_rewards: True
   video_dir: video
-  state_dir: pokemonred_puffer/pyboy_states/stock_starting_states
-  init_state: viridian_all_badges_gyar_arti # new, non-glitched viridian_all_badges_gyar_arti # fuchsia_beat_koga_ready_to_surf # seafoam_surfing_next_to_stuck_spot # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
+  state_dir: stock_starting_states
+  init_state: Bulbasaur # viridian_all_badges_gyar_arti # new, non-glitched viridian_all_badges_gyar_arti # fuchsia_beat_koga_ready_to_surf # seafoam_surfing_next_to_stuck_spot # outside_silph_co_guard_sleeping # skip_silph_co_env_id_28_map_n_7
   action_freq: 24 # 24
   max_steps: 20480
   save_video: False
@@ -123,6 +123,38 @@ env:
   synchronized_events_bool: False
 
   add_boey_obs: True # add boey obs
+  # boey init below
+  # Boey config below
+  # boey_headless: True
+  # boey_save_final_state: False # True
+  early_stop: False # True  # resumed early stopping to ensure reward signal
+
+  env_max_steps: 100000000000
+  session_path: session
+  gb_path: red.gb
+  sim_frame_dist: 2000000.0
+  use_screen_explore: False
+  reward_scale: 4
+  extra_buttons: False
+  restricted_start_menu: True
+  noop_button: True
+  swap_button: True
+  enable_item_manager: False
+  level_reward_badge_scale: 1.0
+  # randomize_first_ep_split_cnt: num_cpu
+  # start_from_state_dir: state_dir
+  save_state_dir: env19_release
+  explore_weight: 1.5  # 3
+  special_exploration_scale: 1.0  # double the exploration for special maps (caverns)
+  enable_stage_manager: True
+  enable_item_purchaser: False
+  auto_skip_anim: True
+  auto_skip_anim_frames: 8
+  early_stopping_min_reward: 2.0
+  total_envs: num_cpu
+  level_manager_eval_mode: False  # True = full run
+  # randomization: 0.3
+
 
 
 
@@ -130,7 +162,7 @@ train:
   seed: 1
   torch_deterministic: True
   device: cuda
-  compile: True
+  compile: False # True testing
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
   total_timesteps: 100_000_000_000
@@ -153,9 +185,9 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 288 # 96 # 288 # 96
-  num_workers: 24 # 24
-  env_batch_size: 72 # 32 # 72 # 8
+  num_envs: 12 # 288 # 96 # 288 # 96
+  num_workers: 12 #24 # 24
+  env_batch_size: 4 # 72 # 32 # 72 # 8
   env_pool: True
   zero_copy: False
 
@@ -178,10 +210,6 @@ wrappers:
   empty:
     - episode_stats.EpisodeStatsWrapper: {}
 
-  
-  boey_obs:
-    - boey_obs_encode.ObsWrapper: {}
-  
   baseline:
     - stream_wrapper.StreamWrapper:
         user: bet_bet_bet
@@ -216,6 +244,14 @@ wrappers:
     - exploration.OnResetExplorationWrapper:
         full_reset_frequency: 1
         jitter: 1
+    - boey_obs_encode.ObsWrapper: {}
+    - stage_manager_wrapper.StageManagerWrapper: {}
+
+  # 
+  #boey_obs:
+  #  - boey_obs_encode.ObsWrapper: {}
+  
+  
 
   fixed_reset_value:
     - stream_wrapper.StreamWrapper:
@@ -231,6 +267,7 @@ wrappers:
         full_reset_frequency: 25
         jitter: 0
     - episode_stats.EpisodeStatsWrapper: {}
+
 
 
 rewards:

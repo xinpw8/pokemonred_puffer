@@ -10,6 +10,10 @@ import pufferlib.pytorch
 
 from pokemonred_puffer.environment import PIXEL_VALUES
 pufferlib.pytorch.nativize_tensor = torch.compiler.disable(pufferlib.pytorch.nativize_tensor)
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Because torch.nn.functional.one_hot cannot be traced by torch as of 2.2.0
 def one_hot(tensor, num_classes):
@@ -214,53 +218,72 @@ class MultiConvolutionalPolicy(nn.Module):
 
 
     def boey_obs(self, observation):
+        img = None
+        minimap = None
+        poke_party_head = None
+        poke_opp_head = None
+        item_features = None
+        event_features = None
+        vector = None
+        map_features = None
+        # Initialize an empty list to collect the features that exist
+        features_to_concat = []
+    
         if self.add_boey_obs:
-          # img = self.image_cnn(observations['image'])  # (256, )
-            img = self.cnn_linear(self.cnn(observation['image'].float()))  # (512, )
+            if 'img' in observation.keys():
+            # img = self.image_cnn(observations['image'])  # (256, )
+                img = self.cnn_linear(self.cnn(observation['image'].float()))  # (512, )
             
-            # minimap_sprite
-            minimap_sprite = observation['minimap_sprite'].to(torch.int)  # (9, 10)
-            embedded_minimap_sprite = self.minimap_sprite_embedding(minimap_sprite)  # (9, 10, 8)
-            embedded_minimap_sprite = embedded_minimap_sprite.permute(0, 3, 1, 2)  # (B, 8, 9, 10)
-            # minimap_warp
-            minimap_warp = observation['minimap_warp'].to(torch.int)  # (9, 10)
-            embedded_minimap_warp = self.minimap_warp_embedding(minimap_warp)  # (9, 10, 8)
-            embedded_minimap_warp = embedded_minimap_warp.permute(0, 3, 1, 2)  # (B, 8, 9, 10)
-            # concat with minimap
-            minimap = observation['minimap']  # (14, 9, 10)
-            minimap = torch.cat([minimap, embedded_minimap_sprite, embedded_minimap_warp], dim=1)  # (14 + 8 + 8, 9, 10)
-            # minimap
-            minimap = self.minimap_cnn_linear(self.minimap_cnn(minimap))  # (256, )
+            if 'minimap' and 'minimap_sprite' and 'minimap_warp' in observation.keys():
+                # minimap_sprite
+                minimap_sprite = observation['minimap_sprite'].to(torch.int)  # (9, 10)
+                embedded_minimap_sprite = self.minimap_sprite_embedding(minimap_sprite)  # (9, 10, 8)
+                embedded_minimap_sprite = embedded_minimap_sprite.permute(0, 3, 1, 2)  # (B, 8, 9, 10)
+                # minimap_warp
+                minimap_warp = observation['minimap_warp'].to(torch.int)  # (9, 10)
+                embedded_minimap_warp = self.minimap_warp_embedding(minimap_warp)  # (9, 10, 8)
+                embedded_minimap_warp = embedded_minimap_warp.permute(0, 3, 1, 2)  # (B, 8, 9, 10)
+                # concat with minimap
+                minimap = observation['minimap']  # (14, 9, 10)
+                minimap = torch.cat([minimap, embedded_minimap_sprite, embedded_minimap_warp], dim=1)  # (14 + 8 + 8, 9, 10)
+                # minimap
+                minimap = self.minimap_cnn_linear(self.minimap_cnn(minimap))  # (256, )
 
             # Pokemon
             # Moves
-            embedded_poke_move_ids = self.poke_move_ids_embedding(observation['poke_move_ids'].to(torch.int))
-            poke_move_pps = observation['poke_move_pps']
-            poke_moves = torch.cat([embedded_poke_move_ids, poke_move_pps], dim=-1)
-            poke_moves = self.move_fc_relu(poke_moves)
-            poke_moves = self.move_max_pool(poke_moves).squeeze(-2)  # (12, 16)
+            if 'poke_move_ids' and 'poke_move_pps' in observation.keys():
+                logging.info(f'poke_move_ids: {observation["poke_move_ids"].shape}, poke_move_pps: {observation["poke_move_pps"].shape}')
+                embedded_poke_move_ids = self.poke_move_ids_embedding(observation['poke_move_ids'].to(torch.int))
+                poke_move_pps = observation['poke_move_pps']
+                poke_moves = torch.cat([embedded_poke_move_ids, poke_move_pps], dim=-1)
+                poke_moves = self.move_fc_relu(poke_moves)
+                poke_moves = self.move_max_pool(poke_moves).squeeze(-2)  # (12, 16)
+
             # Types
-            embedded_poke_type_ids = self.poke_type_ids_embedding(observation['poke_type_ids'].to(torch.int))
-            poke_types = torch.sum(embedded_poke_type_ids, dim=-2)  # (12, 8)
-            # Pokemon ID
-            embedded_poke_ids = self.poke_ids_embedding(observation['poke_ids'].to(torch.int))
-            poke_ids = embedded_poke_ids  # (12, 8)
-            # Pokemon stats (12, 23)
-            poke_stats = observation['poke_all']
-            # All pokemon features
-            pokemon_concat = torch.cat([poke_moves, poke_types, poke_ids, poke_stats], dim=-1)  # (12, 63)
-            pokemon_features = self.poke_fc_relu(pokemon_concat)  # (12, 32)
+            if 'poke_type_ids' and 'poke_ids' and 'poke_all' in observation.keys():
+                logging.info(f'poke_type_ids: {observation["poke_type_ids"].shape}, poke_ids: {observation["poke_ids"].shape}, poke_all: {observation["poke_all"].shape}')
+                embedded_poke_type_ids = self.poke_type_ids_embedding(observation['poke_type_ids'].to(torch.int))
+                poke_types = torch.sum(embedded_poke_type_ids, dim=-2)  # (12, 8)
+                # Pokemon ID
+                embedded_poke_ids = self.poke_ids_embedding(observation['poke_ids'].to(torch.int))
+                poke_ids = embedded_poke_ids  # (12, 8)
+                # Pokemon stats (12, 23)
+                poke_stats = observation['poke_all']
+                # All pokemon features
+                pokemon_concat = torch.cat([poke_moves, poke_types, poke_ids, poke_stats], dim=-1)  # (12, 63)
+                pokemon_features = self.poke_fc_relu(pokemon_concat)  # (12, 32)
 
-            # Pokemon party head
-            party_pokemon_features = pokemon_features[..., :6, :]  # (6, 32), ... for batch dim
-            poke_party_head = self.poke_party_head(party_pokemon_features)  # (6, 32)
-            poke_party_head = self.poke_party_head_max_pool(poke_party_head).squeeze(-2)  # (6, 32) -> (32, )
+                # Pokemon party head
+                party_pokemon_features = pokemon_features[..., :6, :]  # (6, 32), ... for batch dim
+                poke_party_head = self.poke_party_head(party_pokemon_features)  # (6, 32)
+                poke_party_head = self.poke_party_head_max_pool(poke_party_head).squeeze(-2)  # (6, 32) -> (32, )
 
-            # Pokemon opp head
-            opp_pokemon_features = pokemon_features[..., 6:, :]  # (6, 32), ... for batch dim
-            poke_opp_head = self.poke_opp_head(opp_pokemon_features)  # (6, 32)
-            poke_opp_head = self.poke_opp_head_max_pool(poke_opp_head).squeeze(-2)  # (6, 32) -> (32, )
+                # Pokemon opp head
+                opp_pokemon_features = pokemon_features[..., 6:, :]  # (6, 32), ... for batch dim
+                poke_opp_head = self.poke_opp_head(opp_pokemon_features)  # (6, 32)
+                poke_opp_head = self.poke_opp_head_max_pool(poke_opp_head).squeeze(-2)  # (6, 32) -> (32, )
 
+            # breakpoint()
             # Items
             embedded_item_ids = self.item_ids_embedding(observation['item_ids'].to(torch.int))  # (20, 16)
             # item_quantity
@@ -294,10 +317,49 @@ class MultiConvolutionalPolicy(nn.Module):
             # Raw vector
             vector = observation['vector']  # (99, )
 
-            # Concat all features
-            map_features = map_features.squeeze(0)
-            # print(f'img: {img.shape}, minimap: {minimap.shape}, poke_party_head: {poke_party_head.shape}, poke_opp_head: {poke_opp_head.shape}, item_features: {item_features.shape}, event_features: {event_features.shape}, vector: {vector.shape}, map_features: {map_features.shape}')
-            all_features = torch.cat([img, minimap, poke_party_head, poke_opp_head, item_features, event_features, vector, map_features], dim=-1)  # (410 + 256, )img,
+
+
+            # # Check each feature and append it to the list if it is not None
+            # if img is not None:
+            #     features_to_concat.append(img)
+            #     assert img.shape == (72, 512), logging.info(f'img: {img.shape}')
+            # if minimap is not None:
+            #     features_to_concat.append(minimap)
+            #     assert minimap.shape == (1, 512), logging.info(f'minimap: {minimap.shape}')
+            # if poke_party_head is not None:
+            #     features_to_concat.append(poke_party_head)
+            #     assert poke_party_head.shape == (1, 64), logging.info(f'poke_party_head: {poke_party_head.shape}')
+            # if poke_opp_head is not None:
+            #     features_to_concat.append(poke_opp_head)
+            #     assert poke_opp_head.shape == (1, 64), logging.info(f'poke_opp_head: {poke_opp_head.shape}')
+            # if item_features is not None:
+            #     features_to_concat.append(item_features)
+            #     assert item_features.shape == (1, 32), logging.info(f'item_features: {item_features.shape}')
+            # if event_features is not None:
+            #     features_to_concat.append(event_features)
+            #     assert event_features.shape == (1, 64), logging.info(f'event_features: {event_features.shape}')
+            # if vector is not None:
+            #     features_to_concat.append(vector)
+            #     assert vector.shape == (1, 54), logging.info(f'vector: {vector.shape}')
+            if map_features is not None:
+                map_features = map_features.squeeze(0)
+            #     features_to_concat.append(map_features)
+            #     assert map_features.shape == (1, 32), logging.info(f'map_features: {map_features.shape}')
+
+            features_to_concat = [img, minimap, poke_party_head, poke_opp_head, item_features, event_features, vector, map_features]
+            
+            # Concatenate all collected features along the last dimension
+            if features_to_concat:
+                # logging.info(f'features_to_concat: {[feature.shape for feature in features_to_concat if feature is not None]}')
+                features_to_concat = [feature for feature in features_to_concat if feature is not None]
+                all_features = torch.cat(features_to_concat, dim=-1)
+            else:
+                raise ValueError("No features to concatenate")
+
+            # # Concat all features
+            # map_features = map_features.squeeze(0)
+            # # print(f'img: {img.shape}, minimap: {minimap.shape}, poke_party_head: {poke_party_head.shape}, poke_opp_head: {poke_opp_head.shape}, item_features: {item_features.shape}, event_features: {event_features.shape}, vector: {vector.shape}, map_features: {map_features.shape}')
+            # all_features = torch.cat([img, minimap, poke_party_head, poke_opp_head, item_features, event_features, vector, map_features], dim=-1)  # (410 + 256, )img,
 
         return all_features
     
