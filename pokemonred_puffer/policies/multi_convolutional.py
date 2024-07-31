@@ -2,12 +2,18 @@
 import torch
 from torch import nn
 
+
 from pokemonred_puffer.data_files.events import REQUIRED_EVENTS
 from pokemonred_puffer.data_files.items import Items as ItemsThatGuy
 import pufferlib.emulation
 import pufferlib.models
 import pufferlib.pytorch
+import torch._dynamo
 
+# Suppress errors and fall back to eager mode
+torch._dynamo.config.suppress_errors = True
+# Disable nativization of tensors
+pufferlib.pytorch.nativize_tensor = torch.compiler.disable(pufferlib.pytorch.nativize_tensor)
 
 from pokemonred_puffer.environment import PIXEL_VALUES
 
@@ -66,7 +72,7 @@ class MultiConvolutionalPolicy(nn.Module):
         #     nn.Flatten(),
         # )
         self.encode_linear = nn.Sequential(
-            nn.Linear(7111, hidden_size), # 12871 (with 'screen' obs)
+            nn.Linear(2791, hidden_size), # previously 7111 with compile = off; 12871 (with 'screen' obs)
             nn.ReLU(),
         )
 

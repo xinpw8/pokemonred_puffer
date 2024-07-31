@@ -55,7 +55,7 @@ env:
   frame_stacks: 1
   perfect_ivs: True
   reduce_res: True
-  two_bit: False # True (testing)
+  two_bit: True # False (testing)
   fixed_x: False
   use_global_map: False
   log_frequency: 5000 # 1000
@@ -166,18 +166,18 @@ train:
   seed: 1
   torch_deterministic: True
   device: cuda
-  compile: False # True
+  compile: True # testing
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
   total_timesteps: 100_000_000_000
-  batch_size: 8192 # 65536 8192, for testing
+  batch_size: 65536 # 8192 for testing
   minibatch_size: 2048
   learning_rate: 2.0e-4
   anneal_lr: False
   gamma: 0.998
   gae_lambda: 0.95
   num_minibatches: 4
-  update_epochs: 1 # 3  1, for testing
+  update_epochs: 3  # 1 for testing
   norm_adv: True
   clip_coef: 0.1
   clip_vloss: True
@@ -189,7 +189,7 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 24 # 24 # 288 # 96 # 288 # 96
+  num_envs: 96 # 24 # 288 # 96 # 288 # 96
   num_workers: 24 # 24 # 24
   env_batch_size: 24 # 32 # 72 # 32 # 72 # 8
   env_pool: False # True

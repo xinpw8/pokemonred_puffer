@@ -1,5 +1,7 @@
 import asyncio
 import json
+import gzip
+import os
 from multiprocessing import Lock, shared_memory
 
 import gymnasium as gym
@@ -51,6 +53,8 @@ class StreamWrapper(gym.Wrapper):
         else:
             raise Exception("Could not find emulator!")
         
+        self.file_path = f"env_{self.env_id}_coords.json.gz"
+        
     @property
     def x_pos(self):
         return self.env.unwrapped.read_m("wXCoord")
@@ -87,8 +91,9 @@ class StreamWrapper(gym.Wrapper):
                     json.dumps({"metadata": self.stream_metadata, "coords": self.coord_list})
                 )
             )
+            self.save_coords_to_file() # write coord list to file
             self.steam_step_counter = 0
-            self.coord_list = []
+            self.coord_list = [] # keep coord list small
 
         self.steam_step_counter += 1
 
@@ -111,3 +116,9 @@ class StreamWrapper(gym.Wrapper):
 
     def reset(self, *args, **kwargs):
         return self.env.reset(*args, **kwargs)
+    
+    # Save the coordinates to a file
+    def save_coords_to_file(self):
+        with gzip.open(self.file_path, 'at') as f:
+            for coord in self.coord_list:
+                f.write(json.dumps(coord) + "\n")
