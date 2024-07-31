@@ -2975,7 +2975,7 @@ class RedGymEnv(Env):
         self.boey_enable_item_purchaser = False if 'boey_enable_item_purchaser' not in self.env_config else self.env_config['boey_enable_item_purchaser']
         self.boey_auto_skip_anim = False if 'boey_auto_skip_anim' not in self.env_config else self.env_config['boey_auto_skip_anim']
         self.boey_auto_skip_anim_frames = 8 if 'boey_auto_skip_anim_frames' not in self.env_config else self.env_config['boey_auto_skip_anim_frames']
-        self.boey_env_id = str(random.randint(1, 9999)).zfill(4) if 'env_id' not in self.env_config else self.env_config['env_id']
+        self.env_id = str(random.randint(1, 9999)).zfill(4) if 'env_id' not in self.env_config else self.env_config['env_id']
         self.boey_env_max_steps = [] if 'boey_env_max_steps' not in self.env_config else self.env_config['boey_env_max_steps']
         self.boey_total_envs = 48 if 'boey_total_envs' not in self.env_config else self.env_config['boey_total_envs']
         self.boey_level_manager_eval_mode = False if 'boey_level_manager_eval_mode' not in self.env_config else self.env_config['boey_level_manager_eval_mode']
@@ -3061,7 +3061,10 @@ class RedGymEnv(Env):
         
     
     # def read_ram_m(self, addr: RAM) -> int:
-    #     return self.pyboy.get_memory_value(addr.value)
+    #     return self.get_memory_value(addr.value)
+    
+    def get_memory_value(self, addr: int) -> int:
+        return self.pyboy.memory[addr]
     
     def read_ram_m(self, addr: RAM) -> int:
         return self.pyboy.memory[addr.value]
@@ -3189,7 +3192,7 @@ class RedGymEnv(Env):
     #         # walkable
     #         minimap[0] = _walk_simple_screen()
     #         # minimap[0] = self.wrapped_pyboy._boey_get_screen_walkable_matrix()
-    #         tileset_id = self.pyboy.get_memory_value(0xd367)
+    #         tileset_id = self.get_memory_value(0xd367)
     #         if tileset_id in [0, 3, 5, 7, 13, 14, 17, 22, 23]:  # 0 overworld, 3 forest, 
     #             # water
     #             if tileset_id == 14:  # vermilion port
@@ -3561,7 +3564,7 @@ class RedGymEnv(Env):
         return max(
             sum(
                 [
-                    ram_map.bit_count(self.pyboy.get_memory_value(i))
+                    ram_map.bit_count(self.get_memory_value(i))
                     for i in range(ram_map.EVENT_FLAGS_START, ram_map.EVENT_FLAGS_START + ram_map.EVENTS_FLAGS_LENGTH)
                 ]
             )
@@ -3887,7 +3890,7 @@ class RedGymEnv(Env):
             elif action == 6:
                 # not in battle and start menu, pressing START
                 # opening menu, always set to 1
-                self.pyboy.set_memory_value(0xCC2D, 1)  # wBattleAndStartSavedMenuItem
+                self.set_memory_value(0xCC2D, 1)  # wBattleAndStartSavedMenuItem
         return action
     
     @property
@@ -5395,10 +5398,295 @@ class RedGymEnv(Env):
         # set all past reward to current total reward, so that the agent will not be penalized for the first step
         self.boey_past_rewards[1:] = self.boey_past_rewards[0] - (self.boey_early_stopping_min_reward * self.boey_reward_scale)
         self.boey_reset_count += 1
-        if self.boey_enable_stage_manager:
-            self.boey_update_stage_manager()
+        # if self.boey_enable_stage_manager:
+        #     self.boey_update_stage_manager()
         
     def boey_init_map_mem(self):
         self.boey_seen_coords = {}
         self.boey_perm_seen_coords = {}
         self.boey_special_seen_coords_count = 0
+        
+    def set_memory_value(self, address, value):
+        self.pyboy.memory[address] = value
+        
+    #################################################################
+    ## Adding stage manager
+    
+    def scripted_routine_cut(self, action):
+        if not self.can_use_cut:
+            return
+        # TURN THIS ON OR ELSE IT WILL AUTO CUT
+        if action != 4:
+            return
+        
+        if self.read_m(0xFFB0) == 0:
+            # in menu
+            return
+
+        # can only be used in overworld and gym
+        tile_id = self.read_ram_m(RAM.wCurMapTileset)
+        use_cut_now = False
+        cut_tile = -1
+        
+        # check if wTileInFrontOfPlayer is tree, 0x3d in overworld, 0x50 in gym
+        if tile_id in [0, 7]:  # overworld, gym
+            minimap_tree = self.get_minimap_obs()[1]
+            facing_direction = self.read_m(0xC109)  # wSpritePlayerStateData1FacingDirection
+            if facing_direction == 0:  # down
+                tile_infront = minimap_tree[5, 4]
+            elif facing_direction == 4:  # up
+                tile_infront = minimap_tree[3, 4]
+            elif facing_direction == 8:  # left
+                tile_infront = minimap_tree[4, 3]
+            elif facing_direction == 12:  # right
+                tile_infront = minimap_tree[4, 5]
+            # tile_infront = self.read_ram_m(RAM.wTileInFrontOfPlayer)
+            if tile_id == 0 and tile_infront == 1:
+                use_cut_now = True
+                cut_tile = 0x3d
+            elif tile_id == 7 and tile_infront == 1:
+                use_cut_now = True
+                cut_tile = 0x50
+        if use_cut_now:
+            self.set_memory_value(RAM.wBattleAndStartSavedMenuItem.value, 1)  # set to Pokemon
+            self.run_action_on_emulator(action=10, emulated=WindowEvent.PRESS_BUTTON_START)
+            self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
+            for _ in range(3):
+                self.set_memory_value(RAM.wFieldMoves.value, 1)  # set first field move to cut
+                self.set_memory_value(RAM.wWhichPokemon.value, 0)  # first pokemon
+                self.set_memory_value(RAM.wMaxMenuItem.value, 3)  # max menu item
+                self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
+            # post check if wActionResultOrTookBattleTurn == 1
+            if self.read_ram_m(RAM.wActionResultOrTookBattleTurn) == 1 and self.read_ram_m(RAM.wCutTile) == cut_tile:
+                self.used_cut_coords_dict[f'x:{self.current_coords[0]} y:{self.current_coords[1]} m:{self.current_map_id}'] = self.step_count
+                # print(f'\ncut used at step {self.step_count}, coords: {self.current_coords}, map: {MAP_ID_REF[self.current_map_id - 1]}, used_cut_coords_dict: {self.used_cut_coords_dict}')
+            else:
+                pass
+                # print(f'\nERROR! cut failed, actioresult: {self.read_ram_m(RAM.wActionResultOrTookBattleTurn)}, wCutTile: {self.read_ram_m(RAM.wCutTile)}, xy: {self.current_coords}, map: {MAP_ID_REF[self.current_map_id - 1]}')
+    
+    def scripted_routine_surf(self, action):
+        if not self.can_use_surf:
+            return
+        # TURN THIS ON OR ELSE IT WILL AUTO SURF
+        if action != 4:
+            return
+        
+        if self.read_m(0xFFB0) == 0 or self.read_ram_m(RAM.wWalkBikeSurfState) == 2:
+            # in menu
+            # or already surfing
+            return
+
+        # can only be used in overworld and gym
+        tile_id = self.read_ram_m(RAM.wCurMapTileset)
+        use_surf_now = False
+
+        if tile_id not in [0, 3, 5, 7, 13, 14, 17, 22, 23]:
+            return
+
+        # surf_tile = -1
+        # TilePairCollisionsWater
+        # db FOREST, $14, $2E
+        # db FOREST, $48, $2E
+        # db CAVERN, $14, $05
+        facing_direction = self.read_m(0xC109)  # wSpritePlayerStateData1FacingDirection
+        # if tile_id in [0, 3, 5, 7, 13, 14, 17, 22, 23]:
+        # minimap_water = self.get_minimap_obs()[5]
+        if facing_direction == 0:  # down
+            tile_infront = self.bottom_left_screen_tiles[5, 4]
+        elif facing_direction == 4:  # up
+            tile_infront = self.bottom_left_screen_tiles[3, 4]
+        elif facing_direction == 8:  # left
+            tile_infront = self.bottom_left_screen_tiles[4, 3]
+        elif facing_direction == 12:  # right
+            tile_infront = self.bottom_left_screen_tiles[4, 5]
+        # tile_infront = self.read_ram_m(RAM.wTileInFrontOfPlayer)
+        # no_collision = True
+        use_surf_now = False
+        if tile_infront in [0x14, 0x32, 0x48]:
+            use_surf_now = True
+            if tile_id == 17:
+                # cavern
+                # check for TilePairCollisionsWater
+                tile_standingon = self.bottom_left_screen_tiles[4, 4]
+                if tile_infront == 0x14 and tile_standingon == 5:
+                    use_surf_now = False
+            elif tile_id == 3:
+                # forest
+                # check for TilePairCollisionsWater
+                tile_standingon = self.bottom_left_screen_tiles[4, 4]
+                if tile_infront in [0x14, 0x48] and tile_standingon == 0x2e:
+                    use_surf_now = False
+            elif tile_id == 14:
+                # vermilion dock
+                # only 0x14 can be surfed on
+                if tile_infront != 0x14:
+                    use_surf_now = False
+            elif tile_id == 13:
+                # safari zone
+                # only 0x14 can be surfed on
+                if tile_infront != 0x14:
+                    use_surf_now = False
+        if use_surf_now:
+            # temporary workaround
+            map_id = self.current_map_id - 1
+            x, y = self.current_coords
+            if map_id == 8:
+                map_name = MAP_ID_REF[map_id]
+                map_width = MAP_DICT[map_name]['width']
+                if ['CINNABAR_ISLAND', 'north'] in self.stage_manager.blockings and y == 0 and facing_direction == 4:
+                    # skip
+                    return
+                elif ['CINNABAR_ISLAND', 'east'] in self.stage_manager.blockings and x == map_width - 1 and facing_direction == 12:
+                    # skip
+                    return
+            self.set_memory_value(RAM.wBattleAndStartSavedMenuItem.value, 1)
+            self.run_action_on_emulator(action=10, emulated=WindowEvent.PRESS_BUTTON_START)
+            self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
+            for _ in range(3):
+                self.set_memory_value(RAM.wFieldMoves.value, 3)  # set first field move to surf
+                self.set_memory_value(RAM.wWhichPokemon.value, 0)  # first pokemon
+                self.set_memory_value(RAM.wMaxMenuItem.value, 3)  # max menu item
+                self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
+            # print(f'\nsurf used at step {self.step_count}, coords: {self.current_coords}, map: {MAP_ID_REF[self.current_map_id - 1]}')
+
+    def scripted_routine_flute(self, action):
+        if not self.can_use_flute:
+            return
+        # TURN THIS ON OR ELSE IT WILL AUTO FLUTE
+        if action != 4:
+            return
+        
+        if self.read_m(0xFFB0) == 0:
+            # in menu
+            return
+
+        # can only be used in overworld
+        tile_id = self.read_ram_m(RAM.wCurMapTileset)
+        use_flute_now = False
+        
+        if tile_id in [0,]:
+            minimap_sprite = self.get_minimap_sprite_obs()
+            facing_direction = self.read_m(0xC109)  # wSpritePlayerStateData1FacingDirection
+            if facing_direction == 0:  # down
+                tile_infront = minimap_sprite[5, 4]
+            elif facing_direction == 4:  # up
+                tile_infront = minimap_sprite[3, 4]
+            elif facing_direction == 8:  # left
+                tile_infront = minimap_sprite[4, 3]
+            elif facing_direction == 12:  # right
+                tile_infront = minimap_sprite[4, 5]
+            # tile_infront = self.read_ram_m(RAM.wTileInFrontOfPlayer)
+            if tile_infront == 32:
+                use_flute_now = True
+        if use_flute_now:
+            flute_bag_idx = self.get_items_in_bag().index(0x49)
+            self.set_memory_value(RAM.wBattleAndStartSavedMenuItem.value, 2)
+            self.set_memory_value(RAM.wBagSavedMenuItem.value, 0)
+            self.set_memory_value(RAM.wListScrollOffset.value, flute_bag_idx)
+            self.run_action_on_emulator(action=10, emulated=WindowEvent.PRESS_BUTTON_START)
+            self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
+            for _ in range(10):  # help to skip through the wait
+                self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
+
+    def scripted_stage_blocking(self, action):    
+        if not self.stage_manager.blockings:
+            return action
+        if self.read_m(0xFFB0) == 0:  # or action < 4
+            # if not in menu, then check if we are blocked
+            # if action is arrow, then check if we are blocked
+            return action
+        map_id = self.current_map_id - 1
+        map_name = MAP_ID_REF[map_id]
+        blocking_indexes = [idx for idx in range(len(self.stage_manager.blockings)) if self.stage_manager.blockings[idx][0] == map_name]
+        # blocking_map_ids = [b[0] for b in self.stage_manager.blockings]
+        if not blocking_indexes:
+            return action
+        x, y = self.current_coords
+        new_x, new_y = x, y
+        if action == 0:  # down
+            new_y += 1
+        elif action == 1:  # left
+            new_x -= 1
+        elif action == 2:  # right
+            new_x += 1
+        elif action == 3:  # up
+            new_y -= 1
+        # if new_x or new_y is blocked, then return noop button
+        for idx in blocking_indexes:
+            blocking = self.stage_manager.blockings[idx]
+            blocked_dir_warp = blocking[1]
+            if blocked_dir_warp in ['north', 'south', 'west', 'east']:
+                if blocked_dir_warp == 'north' and action == 3 and new_y < 0:
+                    return self.noop_button_index
+                elif blocked_dir_warp == 'south' and action == 0 and new_y >= MAP_DICT[map_name]['height']:
+                    return self.noop_button_index
+                elif blocked_dir_warp == 'west' and action == 1 and new_x < 0:
+                    return self.noop_button_index
+                elif blocked_dir_warp == 'east' and action == 2 and new_x >= MAP_DICT[map_name]['width']:
+                    return self.noop_button_index
+            else:
+                # blocked warp
+                # get all warps in map
+                warps = WARP_DICT[map_name]
+                assert '@' in blocked_dir_warp, f'blocked_dir_warp: {blocked_dir_warp}'
+                blocked_warp_map_name, blocked_warp_warp_id = blocked_dir_warp.split('@')
+                for warp in warps:
+                    if warp['target_map_name'] == blocked_warp_map_name and warp['warp_id'] == int(blocked_warp_warp_id):
+                        if (new_x, new_y) == (warp['x'], warp['y']):
+                            return self.noop_button_index
+        return action
+    
+    def scripted_manage_party(self, action):
+        # run scripted_party_management when pressing A facing the PC in pokecenter
+        # indigo plateau lobby 0xAE
+        pokecenter_map_ids = [0x29, 0x3A, 0x40, 0x44, 0x51, 0x59, 0x85, 0x8D, 0x9A, 0xAB, 0xB6, 0xAE, 0x81, 0xEB, 0xAA]
+        map_id = self.current_map_id - 1
+        if map_id not in pokecenter_map_ids:
+            return action
+        
+        if action != 4:
+            return action
+        
+        if self.read_m(0xFFB0) == 0:  # 0xFFB0 == 0 means in menu
+            # in menu
+            return action
+        
+        x, y = self.current_coords
+        # 13, 4 is the coords below the pc
+        # make sure we are facing the pc, up
+        if map_id == 0xAE:
+            if (x, y) != (15, 8):
+                # for indigo plateau lobby, only do this when we are at 15, 8
+                return action
+        elif map_id == 0x81:
+            # celadon mansion 2f
+            if (x, y) != (0, 6):
+                return action
+        elif map_id == 0xEB:
+            # silph co 11f
+            if (x, y) != (10, 13):
+                return action
+        elif map_id == 0xAA:
+            # cinnabar fossil room
+            if (x, y) not in [(0, 5), (2, 5)]:
+                return action
+        elif (x, y) != (13, 4):
+            return action
+        
+        # check if we are facing the pc
+        facing_direction = self.read_m(0xC109)  # wSpritePlayerStateData1FacingDirection
+        if facing_direction != 4:
+            return action
+
+        self.scripted_party_management()
+
+        return self.noop_button_index
+    
+    def can_auto_press_a(self):
+        if self.read_m(0xc4f2) == 238 and \
+            self.read_m(0xFFB0) == 0 and \
+                self.read_ram_m(RAM.wTextBoxID) == 1 and \
+                    self.read_m(0xFF8B) != 0:  # H_DOWNARROWBLINKCNT1
+            return True
+        else:
+            return False

@@ -11,6 +11,11 @@ from pokemonred_puffer.pokered_constants import MAP_DICT, MAP_ID_REF, WARP_DICT,
     SPECIES_TO_ID, ID_TO_SPECIES, CHARMAP, MOVES_INFO_DICT, MART_MAP_IDS, MART_ITEMS_ID_DICT, ITEM_TM_IDS_PRICES
 from pokemonred_puffer.ram_addresses import RamAddress as RAM
 from pokemonred_puffer.stage_manager import StageManager, STAGE_DICT, POKECENTER_TO_INDEX_DICT
+from typing import Union
+import matplotlib.pyplot as plt
+import json
+import pandas as pd
+import uuid
 
 class StageManagerWrapper(gym.Wrapper):
     def __init__(self, env: RedGymEnv, reward_config: pufferlib.namespace):
@@ -260,10 +265,10 @@ class StageManagerWrapper(gym.Wrapper):
 
         self.save_and_print_info(step_limit_reached, obs_memory)
 
-        if self.level_completed and self.level_manager_eval_mode:
-            self.current_level += 1
+        if self.level_completed and self.env.unwrapped.boey_level_manager_eval_mode:
+            self.env.unwrapped.boey_current_level += 1
 
-        self.step_count += 1
+        self.env.unwrapped.boey_step_count += 1
 
         if not self.level_manager_initialized:
             self.level_manager_initialized = True
@@ -275,16 +280,16 @@ class StageManagerWrapper(gym.Wrapper):
             # if not instant text speed, then set it to instant
             txt_value = self.read_ram_m(RAM.wd730)
             self.pyboy.set_memory_value(RAM.wd730.value, self.set_bit(txt_value, 6))
-        if self.enable_stage_manager and action < 4:
+        if self.env.unwrapped.boey_enable_stage_manager and action < 4:
             # enforce stage_manager.blockings
             action = self.scripted_stage_blocking(action)
-        if self.enable_item_purchaser and self.current_map_id - 1 in MART_MAP_IDS and action == 4:
-            can_buy = self.scripted_buy_items()
+        if self.env.unwrapped.boey_enable_item_purchaser and self.env.unwrapped.boey_current_map_id - 1 in MART_MAP_IDS and action == 4:
+            can_buy = self.env.unwrapped.boey_scripted_buy_items()
             if can_buy:
                 action = self.noop_button_index
-        if not emulated and self.extra_buttons and self.restricted_start_menu:
+        if not emulated and self.env.unwrapped.boey_extra_buttons and self.env.unwrapped.boey_restricted_start_menu:
             # restrict start menu choices
-            action = self.get_menu_restricted_action(action)
+            action = self.env.unwrapped.boey_get_menu_restricted_action(action)
         # press button then release after some steps
         if not emulated:
             if action == 4:
@@ -297,7 +302,7 @@ class StageManagerWrapper(gym.Wrapper):
             self.pyboy.send_input(emulated)
         # disable rendering when we don't need it
         # if self.headless and (self.fast_video or not self.save_video):
-        if emulated or (self.headless and (self.fast_video or not self.save_video)):
+        if emulated or (self.env.unwrapped.boey_headless and (self.env.unwrapped.boey_fast_video or not self.env.unwrapped.boey_save_video)):
             self.pyboy._rendering(False)
         for i in range(self.act_freq):
             # release action, so they are stateless
@@ -312,17 +317,70 @@ class StageManagerWrapper(gym.Wrapper):
                     self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START)
                 elif emulated and emulated == WindowEvent.PRESS_BUTTON_START:
                     self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START)
-            if self.save_video and not self.fast_video:
-                self.add_video_frame()
-            if i == self.act_freq-1 and not emulated and not self.can_auto_press_a():
+            if self.env.unwrapped.boey_save_video and not self.env.unwrapped.boey_fast_video:
+                self.env.unwrapped.boey_add_video_frame()
+            if i == self.env.unwrapped.boey_act_freq-1 and not emulated and not self.can_auto_press_a():
                 self.pyboy._rendering(True)
             self.pyboy.tick()
-        if self.save_video and self.fast_video:
-            self.add_video_frame()
-            
+        if self.env.unwrapped.boey_save_video and self.env.unwrapped.boey_fast_video:
+            self.env.unwrapped.boey_add_video_frame()
 
+    
+    def scripted_routine_cut(self, action):
+        if not self.env.unwrapped.boey_can_use_cut:
+            return
+        # TURN THIS ON OR ELSE IT WILL AUTO CUT
+        if action != 4:
+            return
+        
+        if self.read_m(0xFFB0) == 0:
+            # in menu
+            return
+
+        # can only be used in overworld and gym
+        tile_id = self.read_ram_m(RAM.wCurMapTileset)
+        use_cut_now = False
+        cut_tile = -1
+        
+        # check if wTileInFrontOfPlayer is tree, 0x3d in overworld, 0x50 in gym
+        if tile_id in [0, 7]:  # overworld, gym
+            minimap_tree = self.env.unwrapped.boey_get_minimap_obs()[1]
+            facing_direction = self.read_m(0xC109)  # wSpritePlayerStateData1FacingDirection
+            if facing_direction == 0:  # down
+                tile_infront = minimap_tree[5, 4]
+            elif facing_direction == 4:  # up
+                tile_infront = minimap_tree[3, 4]
+            elif facing_direction == 8:  # left
+                tile_infront = minimap_tree[4, 3]
+            elif facing_direction == 12:  # right
+                tile_infront = minimap_tree[4, 5]
+            # tile_infront = self.read_ram_m(RAM.wTileInFrontOfPlayer)
+            if tile_id == 0 and tile_infront == 1:
+                use_cut_now = True
+                cut_tile = 0x3d
+            elif tile_id == 7 and tile_infront == 1:
+                use_cut_now = True
+                cut_tile = 0x50
+        if use_cut_now:
+            self.set_memory_value(RAM.wBattleAndStartSavedMenuItem.value, 1)  # set to Pokemon
+            self.run_action_on_emulator(action=10, emulated=WindowEvent.PRESS_BUTTON_START)
+            self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
+            for _ in range(3):
+                self.set_memory_value(RAM.wFieldMoves.value, 1)  # set first field move to cut
+                self.set_memory_value(RAM.wWhichPokemon.value, 0)  # first pokemon
+                self.set_memory_value(RAM.wMaxMenuItem.value, 3)  # max menu item
+                self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
+            # post check if wActionResultOrTookBattleTurn == 1
+            if self.read_ram_m(RAM.wActionResultOrTookBattleTurn) == 1 and self.read_ram_m(RAM.wCutTile) == cut_tile:
+                self.env.unwrapped.boey_used_cut_coords_dict[f'x:{self.env.unwrapped.boey_current_coords[0]} y:{self.env.unwrapped.boey_current_coords[1]} m:{self.env.unwrapped.boey_current_map_id}'] = self.env.unwrapped.boey_step_count
+                # print(f'\ncut used at step {self.step_count}, coords: {self.current_coords}, map: {MAP_ID_REF[self.current_map_id - 1]}, used_cut_coords_dict: {self.used_cut_coords_dict}')
+            else:
+                pass
+                # print(f'\nERROR! cut failed, actioresult: {self.read_ram_m(RAM.wActionResultOrTookBattleTurn)}, wCutTile: {self.read_ram_m(RAM.wCutTile)}, xy: {self.current_coords}, map: {MAP_ID_REF[self.current_map_id - 1]}')
+    
+    
     def scripted_routine_flute(self, action):
-        if not self.can_use_flute:
+        if not self.env.unwrapped.boey_can_use_flute:
             return
         # TURN THIS ON OR ELSE IT WILL AUTO FLUTE
         if action != 4:
@@ -337,7 +395,7 @@ class StageManagerWrapper(gym.Wrapper):
         use_flute_now = False
         
         if tile_id in [0,]:
-            minimap_sprite = self.get_minimap_sprite_obs()
+            minimap_sprite = self.env.unwrapped.boey_get_minimap_sprite_obs()
             facing_direction = self.read_m(0xC109)  # wSpritePlayerStateData1FacingDirection
             if facing_direction == 0:  # down
                 tile_infront = minimap_sprite[5, 4]
@@ -361,19 +419,19 @@ class StageManagerWrapper(gym.Wrapper):
                 self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
 
     def scripted_stage_blocking(self, action):    
-        if not self.stage_manager.blockings:
+        if not self.env.unwrapped.boey_stage_manager.blockings:
             return action
         if self.read_m(0xFFB0) == 0:  # or action < 4
             # if not in menu, then check if we are blocked
             # if action is arrow, then check if we are blocked
             return action
-        map_id = self.current_map_id - 1
+        map_id = self.env.unwrapped.boey_current_map_id - 1
         map_name = MAP_ID_REF[map_id]
-        blocking_indexes = [idx for idx in range(len(self.stage_manager.blockings)) if self.stage_manager.blockings[idx][0] == map_name]
+        blocking_indexes = [idx for idx in range(len(self.env.unwrapped.boey_stage_manager.blockings)) if self.env.unwrapped.boey_stage_manager.blockings[idx][0] == map_name]
         # blocking_map_ids = [b[0] for b in self.stage_manager.blockings]
         if not blocking_indexes:
             return action
-        x, y = self.current_coords
+        x, y = self.env.unwrapped.boey_current_coords
         new_x, new_y = x, y
         if action == 0:  # down
             new_y += 1
@@ -385,7 +443,7 @@ class StageManagerWrapper(gym.Wrapper):
             new_y -= 1
         # if new_x or new_y is blocked, then return noop button
         for idx in blocking_indexes:
-            blocking = self.stage_manager.blockings[idx]
+            blocking = self.env.unwrapped.boey_stage_manager.blockings[idx]
             blocked_dir_warp = blocking[1]
             if blocked_dir_warp in ['north', 'south', 'west', 'east']:
                 if blocked_dir_warp == 'north' and action == 3 and new_y < 0:
@@ -412,7 +470,7 @@ class StageManagerWrapper(gym.Wrapper):
         # run scripted_party_management when pressing A facing the PC in pokecenter
         # indigo plateau lobby 0xAE
         pokecenter_map_ids = [0x29, 0x3A, 0x40, 0x44, 0x51, 0x59, 0x85, 0x8D, 0x9A, 0xAB, 0xB6, 0xAE, 0x81, 0xEB, 0xAA]
-        map_id = self.current_map_id - 1
+        map_id = self.env.unwrapped.boey_current_map_id - 1
         if map_id not in pokecenter_map_ids:
             return action
         
@@ -423,7 +481,7 @@ class StageManagerWrapper(gym.Wrapper):
             # in menu
             return action
         
-        x, y = self.current_coords
+        x, y = self.env.unwrapped.boey_current_coords
         # 13, 4 is the coords below the pc
         # make sure we are facing the pc, up
         if map_id == 0xAE:
@@ -450,7 +508,7 @@ class StageManagerWrapper(gym.Wrapper):
         if facing_direction != 4:
             return action
 
-        self.scripted_party_management()
+        self.env.unwrapped.boey_scripted_party_management()
 
         return self.noop_button_index
     
@@ -464,7 +522,7 @@ class StageManagerWrapper(gym.Wrapper):
             return False
         
     def scripted_routine_surf(self, action):
-        if not self.can_use_surf:
+        if not self.env.unwrapped.boey_can_use_surf:
             return
         # TURN THIS ON OR ELSE IT WILL AUTO SURF
         if action != 4:
@@ -489,15 +547,15 @@ class StageManagerWrapper(gym.Wrapper):
         # db CAVERN, $14, $05
         facing_direction = self.read_m(0xC109)  # wSpritePlayerStateData1FacingDirection
         # if tile_id in [0, 3, 5, 7, 13, 14, 17, 22, 23]:
-        # minimap_water = self.get_minimap_obs()[5]
+        # minimap_water = self.env.unwrapped.boey_get_minimap_obs()[5]
         if facing_direction == 0:  # down
-            tile_infront = self.bottom_left_screen_tiles[5, 4]
+            tile_infront = self.env.unwrapped.boey_bottom_left_screen_tiles[5, 4]
         elif facing_direction == 4:  # up
-            tile_infront = self.bottom_left_screen_tiles[3, 4]
+            tile_infront = self.env.unwrapped.boey_bottom_left_screen_tiles[3, 4]
         elif facing_direction == 8:  # left
-            tile_infront = self.bottom_left_screen_tiles[4, 3]
+            tile_infront = self.env.unwrapped.boey_bottom_left_screen_tiles[4, 3]
         elif facing_direction == 12:  # right
-            tile_infront = self.bottom_left_screen_tiles[4, 5]
+            tile_infront = self.env.unwrapped.boey_bottom_left_screen_tiles[4, 5]
         # tile_infront = self.read_ram_m(RAM.wTileInFrontOfPlayer)
         # no_collision = True
         use_surf_now = False
@@ -506,13 +564,13 @@ class StageManagerWrapper(gym.Wrapper):
             if tile_id == 17:
                 # cavern
                 # check for TilePairCollisionsWater
-                tile_standingon = self.bottom_left_screen_tiles[4, 4]
+                tile_standingon = self.env.unwrapped.boey_bottom_left_screen_tiles[4, 4]
                 if tile_infront == 0x14 and tile_standingon == 5:
                     use_surf_now = False
             elif tile_id == 3:
                 # forest
                 # check for TilePairCollisionsWater
-                tile_standingon = self.bottom_left_screen_tiles[4, 4]
+                tile_standingon = self.env.unwrapped.boey_bottom_left_screen_tiles[4, 4]
                 if tile_infront in [0x14, 0x48] and tile_standingon == 0x2e:
                     use_surf_now = False
             elif tile_id == 14:
@@ -527,15 +585,15 @@ class StageManagerWrapper(gym.Wrapper):
                     use_surf_now = False
         if use_surf_now:
             # temporary workaround
-            map_id = self.current_map_id - 1
-            x, y = self.current_coords
+            map_id = self.env.unwrapped.boey_current_map_id - 1
+            x, y = self.env.unwrapped.boey_current_coords
             if map_id == 8:
                 map_name = MAP_ID_REF[map_id]
                 map_width = MAP_DICT[map_name]['width']
-                if ['CINNABAR_ISLAND', 'north'] in self.stage_manager.blockings and y == 0 and facing_direction == 4:
+                if ['CINNABAR_ISLAND', 'north'] in self.env.unwrapped.boey_stage_manager.blockings and y == 0 and facing_direction == 4:
                     # skip
                     return
-                elif ['CINNABAR_ISLAND', 'east'] in self.stage_manager.blockings and x == map_width - 1 and facing_direction == 12:
+                elif ['CINNABAR_ISLAND', 'east'] in self.env.unwrapped.boey_stage_manager.blockings and x == map_width - 1 and facing_direction == 12:
                     # skip
                     return
             self.pyboy.set_memory_value(RAM.wBattleAndStartSavedMenuItem.value, 1)
@@ -546,10 +604,10 @@ class StageManagerWrapper(gym.Wrapper):
                 self.pyboy.set_memory_value(RAM.wWhichPokemon.value, 0)  # first pokemon
                 self.pyboy.set_memory_value(RAM.wMaxMenuItem.value, 3)  # max menu item
                 self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
-            # print(f'\nsurf used at step {self.step_count}, coords: {self.current_coords}, map: {MAP_ID_REF[self.current_map_id - 1]}')
+            # print(f'\nsurf used at step {self.env.unwrapped.boey_step_count}, coords: {self.env.unwrapped.boey_current_coords}, map: {MAP_ID_REF[self.env.unwrapped.boey_current_map_id - 1]}')
             
     def scripted_routine_surf(self, action):
-        if not self.can_use_surf:
+        if not self.env.unwrapped.boey_can_use_surf:
             return
         # TURN THIS ON OR ELSE IT WILL AUTO SURF
         if action != 4:
@@ -574,15 +632,15 @@ class StageManagerWrapper(gym.Wrapper):
         # db CAVERN, $14, $05
         facing_direction = self.read_m(0xC109)  # wSpritePlayerStateData1FacingDirection
         # if tile_id in [0, 3, 5, 7, 13, 14, 17, 22, 23]:
-        # minimap_water = self.get_minimap_obs()[5]
+        # minimap_water = self.env.unwrapped.boey_get_minimap_obs()[5]
         if facing_direction == 0:  # down
-            tile_infront = self.bottom_left_screen_tiles[5, 4]
+            tile_infront = self.env.unwrapped.boey_bottom_left_screen_tiles[5, 4]
         elif facing_direction == 4:  # up
-            tile_infront = self.bottom_left_screen_tiles[3, 4]
+            tile_infront = self.env.unwrapped.boey_bottom_left_screen_tiles[3, 4]
         elif facing_direction == 8:  # left
-            tile_infront = self.bottom_left_screen_tiles[4, 3]
+            tile_infront = self.env.unwrapped.boey_bottom_left_screen_tiles[4, 3]
         elif facing_direction == 12:  # right
-            tile_infront = self.bottom_left_screen_tiles[4, 5]
+            tile_infront = self.env.unwrapped.boey_bottom_left_screen_tiles[4, 5]
         # tile_infront = self.read_ram_m(RAM.wTileInFrontOfPlayer)
         # no_collision = True
         use_surf_now = False
@@ -591,13 +649,13 @@ class StageManagerWrapper(gym.Wrapper):
             if tile_id == 17:
                 # cavern
                 # check for TilePairCollisionsWater
-                tile_standingon = self.bottom_left_screen_tiles[4, 4]
+                tile_standingon = self.env.unwrapped.boey_bottom_left_screen_tiles[4, 4]
                 if tile_infront == 0x14 and tile_standingon == 5:
                     use_surf_now = False
             elif tile_id == 3:
                 # forest
                 # check for TilePairCollisionsWater
-                tile_standingon = self.bottom_left_screen_tiles[4, 4]
+                tile_standingon = self.env.unwrapped.boey_bottom_left_screen_tiles[4, 4]
                 if tile_infront in [0x14, 0x48] and tile_standingon == 0x2e:
                     use_surf_now = False
             elif tile_id == 14:
@@ -612,15 +670,15 @@ class StageManagerWrapper(gym.Wrapper):
                     use_surf_now = False
         if use_surf_now:
             # temporary workaround
-            map_id = self.current_map_id - 1
-            x, y = self.current_coords
+            map_id = self.env.unwrapped.boey_current_map_id - 1
+            x, y = self.env.unwrapped.boey_current_coords
             if map_id == 8:
                 map_name = MAP_ID_REF[map_id]
                 map_width = MAP_DICT[map_name]['width']
-                if ['CINNABAR_ISLAND', 'north'] in self.stage_manager.blockings and y == 0 and facing_direction == 4:
+                if ['CINNABAR_ISLAND', 'north'] in self.env.unwrapped.boey_stage_manager.blockings and y == 0 and facing_direction == 4:
                     # skip
                     return
-                elif ['CINNABAR_ISLAND', 'east'] in self.stage_manager.blockings and x == map_width - 1 and facing_direction == 12:
+                elif ['CINNABAR_ISLAND', 'east'] in self.env.unwrapped.boey_stage_manager.blockings and x == map_width - 1 and facing_direction == 12:
                     # skip
                     return
             self.pyboy.set_memory_value(RAM.wBattleAndStartSavedMenuItem.value, 1)
@@ -631,7 +689,7 @@ class StageManagerWrapper(gym.Wrapper):
                 self.pyboy.set_memory_value(RAM.wWhichPokemon.value, 0)  # first pokemon
                 self.pyboy.set_memory_value(RAM.wMaxMenuItem.value, 3)  # max menu item
                 self.run_action_on_emulator(action=4, emulated=WindowEvent.PRESS_BUTTON_A)
-            # print(f'\nsurf used at step {self.step_count}, coords: {self.current_coords}, map: {MAP_ID_REF[self.current_map_id - 1]}')
+            # print(f'\nsurf used at step {self.env.unwrapped.boey_step_count}, coords: {self.env.unwrapped.boey_current_coords}, map: {MAP_ID_REF[self.env.unwrapped.boey_current_map_id - 1]}')
             
 
     def check_if_level_completed(self):
@@ -659,7 +717,7 @@ class StageManagerWrapper(gym.Wrapper):
             self.read_m(tile_map_base + 14 * 20 + 16) == CHARMAP["<PK>"] and \
             self.read_m(tile_map_base + 14 * 20 + 17) == CHARMAP["<MN>"]:
             # battle menu
-            # if self.print_debug: print(f'is in battle menu at step {self.step_count}')
+            # if self.env.unwrapped.boey_print_debug: print(f'is in battle menu at step {self.env.unwrapped.boey_step_count}')
             return True
         elif text_box_id in [0x0b, 0x01] and \
             self.read_m(tile_map_base + 17 * 20 + 4) == CHARMAP["└"] and \
@@ -667,21 +725,21 @@ class StageManagerWrapper(gym.Wrapper):
             self.read_ram_m(RAM.wTopMenuItemX) == 5 and \
             self.read_ram_m(RAM.wTopMenuItemY) == 12:
             # fight submenu
-            # if self.print_debug: print(f'is in fight submenu at step {self.step_count}')
+            # if self.env.unwrapped.boey_print_debug: print(f'is in fight submenu at step {self.env.unwrapped.boey_step_count}')
             return True
         elif text_box_id == 0x0d and \
             self.read_m(tile_map_base + 2 * 20 + 4) == CHARMAP["┌"] and \
             self.read_ram_m(RAM.wTopMenuItemX) == 5 and \
             self.read_ram_m(RAM.wTopMenuItemY) == 4:
             # bag submenu
-            # if self.print_debug: print(f'is in bag submenu at step {self.step_count}')
+            # if self.env.unwrapped.boey_print_debug: print(f'is in bag submenu at step {self.env.unwrapped.boey_step_count}')
             return True
         elif text_box_id == 0x01 and \
             self.read_m(tile_map_base + 14 * 20 + 1) == CHARMAP["C"] and \
             self.read_m(tile_map_base + 14 * 20 + 2) == CHARMAP["h"] and \
             self.read_m(tile_map_base + 14 * 20 + 3) == CHARMAP["o"]:
             # choose pokemon
-            # if self.print_debug: print(f'is in choose pokemon at step {self.step_count}')
+            # if self.env.unwrapped.boey_print_debug: print(f'is in choose pokemon at step {self.env.unwrapped.boey_step_count}')
             return True
         elif text_box_id == 0x01 and \
             self.read_m(tile_map_base + 14 * 20 + 1) == CHARMAP["B"] and \
@@ -689,7 +747,7 @@ class StageManagerWrapper(gym.Wrapper):
             self.read_m(tile_map_base + 14 * 20 + 3) == CHARMAP["i"]:
             # choose pokemon after opponent fainted
             # choose pokemon after party pokemon fainted
-            # if self.print_debug: print(f'is in choose pokemon after opponent fainted at step {self.step_count}')
+            # if self.env.unwrapped.boey_print_debug: print(f'is in choose pokemon after opponent fainted at step {self.env.unwrapped.boey_step_count}')
             return True
         elif text_box_id == 0x01 and \
             self.read_m(tile_map_base + 14 * 20 + 1) == CHARMAP["U"] and \
@@ -751,107 +809,107 @@ class StageManagerWrapper(gym.Wrapper):
     
     def check_if_early_done(self):
         # self.early_done = False
-        if self.early_stopping and self.step_count > 10239:
+        if self.env.unwrapped.boey_early_stopping and self.env.unwrapped.boey_step_count > 10239:
             # early stop if less than 500 new coords or 125 special coords or any rewards lesser than 2, like so
             # 2 events, 1 new pokecenter, 2 level, 8 trees cut, 1 hm(+event), 1 hm usable, 1 badge, 2 special_key_items, 1 special reward
             # if 4
             # 1,000 new coords or 250 special coords
             # 3 events, 1 new pokecenter, 3 level, 12 trees cut, 1 hm(+event), 1 hm usable, 1 badge, 3 special_key_items, 1.5 special reward
-            # if self.stage_manager.stage == 11 and self.current_map_id - 1 in [0xF5, 0xF6, 0xF7, 0x71, 0x78] and self.elite_4_started_step is not None and self.step_count - self.elite_4_started_step > 1600:
+            # if self.env.unwrapped.boey_stage_manager.stage == 11 and self.env.unwrapped.boey_current_map_id - 1 in [0xF5, 0xF6, 0xF7, 0x71, 0x78] and self.env.unwrapped.boey_elite_4_started_step is not None and self.env.unwrapped.boey_step_count - self.env.unwrapped.boey_elite_4_started_step > 1600:
             #     # if in elite 4 rooms
-            #     self.early_done = self.past_rewards[0] - self.past_rewards[1600] < (self.early_stopping_min_reward / 4 * self.reward_scale)
-            #     if self.early_done:
-            #         num_badges = self.get_badges()
-            #         print(f'elite 4 early done, step: {self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[1600]:6.2f}, badges: {num_badges}')
-            #         self.elite_4_early_done = True
+            #     self.env.unwrapped.boey_early_done = self.env.unwrapped.boey_past_rewards[0] - self.env.unwrapped.boey_past_rewards[1600] < (self.env.unwrapped.boey_early_stopping_min_reward / 4 * self.env.unwrapped.boey_reward_scale)
+            #     if self.env.unwrapped.boey_early_done:
+            #         num_badges = self.env.unwrapped.boey_get_badges()
+            #         print(f'elite 4 early done, step: {self.env.unwrapped.boey_step_count}, r1: {self.env.unwrapped.boey_past_rewards[0]:6.2f}, r2: {self.env.unwrapped.boey_past_rewards[1600]:6.2f}, badges: {num_badges}')
+            #         self.env.unwrapped.boey_elite_4_early_done = True
             # else:
-            self.early_done = self.past_rewards[0] - self.past_rewards[-1] < (self.early_stopping_min_reward * self.reward_scale)
+            self.early_done = self.env.unwrapped.boey_past_rewards[0] - self.env.unwrapped.boey_past_rewards[-1] < (self.env.unwrapped.boey_early_stopping_min_reward * self.env.unwrapped.boey_reward_scale)
             if self.early_done:
                 if self.elite_4_early_done:
-                    num_badges = self.get_badges()
-                    print(f'elite 4 early done, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[1600]:6.2f}, badges: {num_badges}')
+                    num_badges = self.env.unwrapped.boey_get_badges()
+                    print(f'elite 4 early done, step: {self.env.unwrapped.boey_env_id}:{self.env.unwrapped.boey_step_count}, r1: {self.env.unwrapped.boey_past_rewards[0]:6.2f}, r2: {self.env.unwrapped.boey_past_rewards[1600]:6.2f}, badges: {num_badges}')
                     self.elite_4_early_done = True
                 else:
-                    print(f'es, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[-1]:6.2f}')
+                    print(f'es, step: {self.env_id}:{self.env.unwrapped.boey_step_count}, r1: {self.env.unwrapped.boey_past_rewards[0]:6.2f}, r2: {self.env.unwrapped.boey_past_rewards[-1]:6.2f}')
         return self.early_done
 
     def check_if_done(self):
-        done = self.step_count >= self.max_steps
+        done = self.env.unwrapped.boey_step_count >= self.env.unwrapped.boey_max_steps
         if self.early_done:
             done = True
         return done
 
     def save_and_print_info(self, done, obs_memory):
-        if self.print_rewards:
-            if self.step_count % 5 == 0:
-                prog_string = f's: {self.step_count:7d} env: {self.current_level:1}:{self.env_id:2}'
-                if self.enable_stage_manager:
-                    prog_string += f' stage: {self.stage_manager.stage:2d}'
-                for key, val in self.progress_reward.items():
+        if self.env.unwrapped.boey_print_rewards:
+            if self.env.unwrapped.boey_step_count % 5 == 0:
+                prog_string = f's: {self.env.unwrapped.boey_step_count:7d} env: {self.current_level:1}:{self.env_id:2}'
+                if self.env.unwrapped.boey_enable_stage_manager:
+                    prog_string += f' stage: {self.env.unwrapped.boey_stage_manager.stage:2d}'
+                for key, val in self.env.unwrapped.boey_progress_reward.items():
                     if key in ['level', 'explore', 'event', 'dead']:
                         prog_string += f' {key}: {val:6.2f}'
                     elif key in ['level_completed', 'early_done']:
                         continue
                     else:
                         prog_string += f' {key[:10]}: {val:5.2f}'
-                prog_string += f' sum: {self.total_reward:5.2f}'
+                prog_string += f' sum: {self.env.unwrapped.boey_total_reward:5.2f}'
                 print(f'\r{prog_string}', end='', flush=True)
         
-        if self.step_count % 1000 == 0:
+        if self.env.unwrapped.boey_step_count % 1000 == 0:
             try:
                 plt.imsave(
-                    self.s_path / Path(f'curframe_{self.env_id}.jpeg'), 
+                    self.env.unwrapped.boey_s_path / Path(f'curframe_{self.env_id}.jpeg'), 
                     self.render(reduce_res=False))
             except:
                 pass
 
-        if self.print_rewards and done:
+        if self.env.unwrapped.boey_print_rewards and done:
             print('', flush=True)
-            if self.save_final_state:
-                fs_path = self.s_path / Path('final_states')
+            if self.env.unwrapped.boey_save_final_state:
+                fs_path = self.env.unwrapped.boey_s_path / Path('final_states')
                 fs_path.mkdir(exist_ok=True)
                 try:
                     # plt.imsave(
-                    #     fs_path / Path(f'frame_r{self.total_reward:.4f}_{self.reset_count}_small.jpeg'), 
+                    #     fs_path / Path(f'frame_r{self.env.unwrapped.boey_total_reward:.4f}_{self.env.unwrapped.boey_reset_count}_small.jpeg'), 
                     #     rearrange(obs_memory['image'], 'c h w -> h w c'))
                     plt.imsave(
-                        fs_path / Path(f'frame_r{self.total_reward:.4f}_{self.reset_count}_full.jpeg'), 
+                        fs_path / Path(f'frame_r{self.env.unwrapped.boey_total_reward:.4f}_{self.env.unwrapped.boey_reset_count}_full.jpeg'), 
                         self.render(reduce_res=False))
                 except Exception as e:
                     print(f'error saving final state: {e}')
-                # if self.save_state_dir:
-                #     self.save_all_states()
+                # if self.env.unwrapped.boey_save_state_dir:
+                #     self.env.unwrapped.boey_save_all_states()
 
-        if self.save_video and done:
-            self.full_frame_writer.close()
-            # modify video name to include final reward (self.total_reward) as prefix
-            new_name = f'r{self.total_reward:.4f}_env{self.env_id}_{self.reset_count}.mp4'
-            new_path = self.full_frame_write_full_path.parent / Path(new_name)
-            self.full_frame_write_full_path.rename(new_path)
-            # self.model_frame_writer.close()
+        if self.env.unwrapped.boey_save_video and done:
+            self.env.unwrapped.boey_full_frame_writer.close()
+            # modify video name to include final reward (self.env.unwrapped.boey_total_reward) as prefix
+            new_name = f'r{self.env.unwrapped.boey_total_reward:.4f}_env{self.env_id}_{self.env.unwrapped.boey_reset_count}.mp4'
+            new_path = self.env.unwrapped.boey_full_frame_write_full_path.parent / Path(new_name)
+            self.env.unwrapped.boey_full_frame_write_full_path.rename(new_path)
+            # self.env.unwrapped.boey_model_frame_writer.close()
         
-        if self.save_state_dir:
+        if self.env.unwrapped.boey_save_state_dir:
             if done:
                 if self.level_completed:
-                    self.save_all_states()
+                    self.env.unwrapped.boey_save_all_states()
                 elif not self.early_done:
                     # do not save early done at all, useless info
-                    self.save_all_states(is_failed=True)
+                    self.env.unwrapped.boey_save_all_states(is_failed=True)
                 self.record_statistic()
-            elif self.level_completed and self.level_manager_eval_mode:
-                self.save_all_states()
+            elif self.level_completed and self.env.unwrapped.boey_level_manager_eval_mode:
+                self.env.unwrapped.boey_save_all_states()
                 self.record_statistic()
 
         if done:
-            self.all_runs.append(self.progress_reward)
-            with open(self.s_path / Path(f'all_runs_{self.env_id}.json'), 'w') as f:
-                json.dump(self.all_runs, f)
-            pd.DataFrame(self.agent_stats).to_csv(
-                self.s_path / Path(f'agent_stats_{self.env_id}.csv.gz'), compression='gzip', mode='a')
+            self.env.unwrapped.boey_all_runs.append(self.env.unwrapped.boey_progress_reward)
+            with open(self.env.unwrapped.boey_s_path / Path(f'all_runs_{self.env_id}.json'), 'w') as f:
+                json.dump(self.env.unwrapped.boey_all_runs, f)
+            pd.DataFrame(self.env.unwrapped.boey_agent_stats).to_csv(
+                self.env.unwrapped.boey_s_path / Path(f'agent_stats_{self.env_id}.csv.gz'), compression='gzip', mode='a')
     
     def record_statistic(self):
-        if self.save_state_dir:
-            stats_path = self.save_state_dir / Path('stats')
+        if self.env.unwrapped.boey_save_state_dir:
+            stats_path = self.env.unwrapped.boey_save_state_dir / Path('stats')
             stats_path.mkdir(exist_ok=True)
             with open(stats_path / Path(f'level_{self.current_level}.txt'), 'a') as f:
                 # append S for success and F for failure
@@ -863,18 +921,25 @@ class StageManagerWrapper(gym.Wrapper):
                     f.write(f'F')
 
     def read_m(self, addr):
-        return self.pyboy.get_memory_value(addr)
+        return self.get_memory_value(addr)
 
     def read_bit(self, addr, bit: int) -> bool:
         # add padding so zero will read '0b100000000' instead of '0b0'
         return bin(256 + self.read_m(addr))[-bit-1] == '1'
     
     def read_ram_m(self, addr: RAM) -> int:
-        return self.pyboy.get_memory_value(addr.value)
+        return self.get_memory_value(addr.value)
     
     def read_ram_bit(self, addr: RAM, bit: int) -> bool:
         return bin(256 + self.read_ram_m(addr))[-bit-1] == '1'
     
+    def set_memory_value(self, address, value):
+        self.pyboy.memory[address] = value
+        
+    def get_memory_value(self, addr: int) -> int:
+        return self.pyboy.memory[addr]
+    
+                
     def get_level_completed_reward(self):
         # if self.level_completed:
         #     return 5.0
@@ -887,95 +952,95 @@ class StageManagerWrapper(gym.Wrapper):
         return completed_levels * 5.0
     
     def get_stage_rewards(self):
-        return self.stage_manager.n_stage_started * 1.0 + self.stage_manager.n_stage_ended * 1.0
+        return self.env.unwrapped.boey_stage_manager.n_stage_started * 1.0 + self.env.unwrapped.boey_stage_manager.n_stage_ended * 1.0
     
     def get_special_rewards(self):
         rewards = 0
-        rewards += len(self.hideout_elevator_maps) * 2.0
-        bag_items = self.get_items_in_bag()
+        rewards += len(self.env.unwrapped.boey_hideout_elevator_maps) * 2.0
+        bag_items = self.env.unwrapped.boey_get_items_in_bag()
         if 0x2B in bag_items:
             # 6.0 full mansion rewards + 1.0 extra key items rewards
             rewards += 7.0
-        elif self.stage_manager.stage >= 10:
-            map_id = self.current_map_id - 1
+        elif self.env.unwrapped.boey_stage_manager.stage >= 10:
+            map_id = self.env.unwrapped.boey_current_map_id - 1
             mansion_rewards = 0
             if map_id == 0xD8:
                 # pokemon mansion b1f
                 mansion_rewards += 4.0
-                if 'given_reward' in self.secret_switch_states:
-                    mansion_rewards += self.secret_switch_states['given_reward']
+                if 'given_reward' in self.env.unwrapped.boey_secret_switch_states:
+                    mansion_rewards += self.env.unwrapped.boey_secret_switch_states['given_reward']
             # max mansion_rewards is 12.0 * 0.5 = 6.0 actual rewards
             rewards += mansion_rewards * 0.5
         return rewards
     
     def get_stage_obs(self):
         # set stage obs to 14 for now
-        if not self.enable_stage_manager:
+        if not self.env.unwrapped.boey_enable_stage_manager:
             return np.zeros(28, dtype=np.uint8)
-        # self.stage_manager.n_stage_started : int
-        # self.stage_manager.n_stage_ended : int
+        # self.env.unwrapped.boey_stage_manager.n_stage_started : int
+        # self.env.unwrapped.boey_stage_manager.n_stage_ended : int
         # 28 elements, 14 n_stage_started, 14 n_stage_ended
         result = np.zeros(28, dtype=np.uint8)
-        result[:self.stage_manager.n_stage_started] = 1
-        result[14:14+self.stage_manager.n_stage_ended] = 1
+        result[:self.env.unwrapped.boey_stage_manager.n_stage_started] = 1
+        result[14:14+self.env.unwrapped.boey_stage_manager.n_stage_ended] = 1
         return result  # shape (28,)
     
     def get_level_manager_obs(self):
-        # self.current_level by one hot encoding
-        return self.one_hot_encoding(self.current_level, 10)
+        # self.env.unwrapped.boey_current_level by one hot encoding
+        return self.env.unwrapped.boey_one_hot_encoding(self.current_level, 10)
 
     def update_stage_manager(self):
         current_states = {
-            'items': self.get_items_in_bag(),
-            'map_id': self.current_map_id - 1,
-            'badges': self.get_badges(),
-            'visited_pokecenters': self.visited_pokecenter_list,
-            'last_pokecenter': self.get_last_pokecenter_id(),
+            'items': self.env.unwrapped.boey_get_items_in_bag(),
+            'map_id': self.env.unwrapped.boey_current_map_id - 1,
+            'badges': self.env.unwrapped.boey_get_badges(),
+            'visited_pokecenters': self.env.unwrapped.boey_visited_pokecenter_list,
+            'last_pokecenter': self.env.unwrapped.boey_get_last_pokecenter_id(),
         }
-        if 'events' in STAGE_DICT[self.stage_manager.stage]:
-            event_list = STAGE_DICT[self.stage_manager.stage]['events']
+        if 'events' in STAGE_DICT[self.env.unwrapped.boey_stage_manager.stage]:
+            event_list = STAGE_DICT[self.env.unwrapped.boey_stage_manager.stage]['events']
             if 'EVENT_GOT_MASTER_BALL' in event_list:
                 # EVENT_GOT_MASTER_BALL
                 current_states['events'] = {'EVENT_GOT_MASTER_BALL': self.read_bit(0xD838, 5)}
             if 'CAN_USE_SURF' in event_list:
                 # CAN_USE_SURF
-                current_states['events'] = {'CAN_USE_SURF': self.can_use_surf}
-        # if self.stage_manager.stage == 7:
+                current_states['events'] = {'CAN_USE_SURF': self.env.unwrapped.boey_can_use_surf}
+        # if self.env.unwrapped.boey_stage_manager.stage == 7:
         #     # EVENT_GOT_MASTER_BALL
         #     current_states['events'] = {'EVENT_GOT_MASTER_BALL': self.read_bit(0xD838, 5)}
-        # elif self.stage_manager.stage == 9:
+        # elif self.env.unwrapped.boey_stage_manager.stage == 9:
         #     # CAN_USE_SURF
-        #     current_states['events'] = {'CAN_USE_SURF': self.can_use_surf}
-        self.stage_manager.update(current_states)
+        #     current_states['events'] = {'CAN_USE_SURF': self.env.unwrapped.boey_can_use_surf}
+        self.env.unwrapped.boey_stage_manager.update(current_states)
         
         # additional blockings for stage 10
-        if self.stage_manager.stage == 10:
-            map_id = self.current_map_id - 1
+        if self.env.unwrapped.boey_stage_manager.stage == 10:
+            map_id = self.env.unwrapped.boey_current_map_id - 1
             if map_id == 0xD8:
                 # pokemon mansion b1f
-                # if map_id not in self.hideout_elevator_maps:
-                #     self.hideout_elevator_maps.append(map_id)
-                bag_items = self.get_items_in_bag()
+                # if map_id not in self.env.unwrapped.boey_hideout_elevator_maps:
+                #     self.env.unwrapped.boey_hideout_elevator_maps.append(map_id)
+                bag_items = self.env.unwrapped.boey_get_items_in_bag()
                 additional_blocking = ['POKEMON_MANSION_B1F', 'POKEMON_MANSION_1F@6']
                 if 0x2B not in bag_items:
                     # secret key not in bag items
                     # add blocking
-                    if additional_blocking not in self.stage_manager.blockings:
-                        self.stage_manager.blockings.append(additional_blocking)
+                    if additional_blocking not in self.env.unwrapped.boey_stage_manager.blockings:
+                        self.env.unwrapped.boey_stage_manager.blockings.append(additional_blocking)
                 else:
                     # secret key in bag items
                     # remove blocking
                     if self.read_bit(0xD796, 0) is True:
                         # if switch on then remove blocking to exit
-                        if additional_blocking in self.stage_manager.blockings:
-                            self.stage_manager.blockings.remove(additional_blocking)
+                        if additional_blocking in self.env.unwrapped.boey_stage_manager.blockings:
+                            self.env.unwrapped.boey_stage_manager.blockings.remove(additional_blocking)
                     else:
                         # if switch off then add blocking to exit
-                        if additional_blocking not in self.stage_manager.blockings:
-                            self.stage_manager.blockings.append(additional_blocking)
+                        if additional_blocking not in self.env.unwrapped.boey_stage_manager.blockings:
+                            self.env.unwrapped.boey_stage_manager.blockings.append(additional_blocking)
             # # if have key card, can go to 3f
             # # if have master ball, can go to 1f
-            # if 0x30 in self.get_items_in_bag():
+            # if 0x30 in self.env.unwrapped.boey_get_items_in_bag():
             #     for i in range(2):  # warp to 3f
             #         self.pyboy.set_memory_value(RAM.wWarpEntries.value + (i * 4) + 2, 2)
         return current_states  # for debugging   
@@ -989,7 +1054,7 @@ class StageManagerWrapper(gym.Wrapper):
         #             self.level_completed_skip_type = 1
         #             return True
         if 'badge' in selected_level:
-            if self.get_badges() < selected_level['badge']:
+            if self.env.unwrapped.boey_get_badges() < selected_level['badge']:
                 # not enough badge
                 return False
         if 'event' in selected_level:
@@ -1001,7 +1066,7 @@ class StageManagerWrapper(gym.Wrapper):
         if 'last_pokecenter' in selected_level:
             found = False
             for pokecenter in selected_level['last_pokecenter']:
-                if POKECENTER_TO_INDEX_DICT[pokecenter] == self.get_last_pokecenter_id():
+                if POKECENTER_TO_INDEX_DICT[pokecenter] == self.env.unwrapped.boey_get_last_pokecenter_id():
                     found = True
                     break
             if not found:
@@ -1009,7 +1074,7 @@ class StageManagerWrapper(gym.Wrapper):
                 return False
         # if reached here, means all conditions met
         return True
-        # if not self.level_manager_eval_mode:
+        # if not self.env.unwrapped.boey_level_manager_eval_mode:
         #     # if training mode, then return True
         #     return True
         # else:
@@ -1020,12 +1085,12 @@ class StageManagerWrapper(gym.Wrapper):
     def scripted_roll_party(self):
         # swap party pokemon order
         # by rolling 1 to last, 2 to 1, 3 to 2, 4 to 3, 5 to 4, 6 to 5 according to party pokemon count
-        party_count = self.read_num_poke()
+        party_count = self.env.unwrapped.boey_read_num_poke()
         if party_count < 2:
             # party not full, do nothing
             return
         
-        if self.is_in_battle():
+        if self.env.unwrapped.boey_is_in_battle():
             # do not roll party during battle
             return
         
@@ -1067,9 +1132,9 @@ class StageManagerWrapper(gym.Wrapper):
             self.pyboy.set_memory_value(party_nicknames_addr_start + (party_count - 1) * 11 + i, tmp_nickname[i])
             
     def save_screenshot(self, name):
-        ss_dir = self.s_path / Path('screenshots')
+        ss_dir = self.env.unwrapped.boey_s_path / Path('screenshots')
         ss_dir.mkdir(exist_ok=True)
         uuid_str = uuid.uuid4().hex
         plt.imsave(
-            ss_dir / Path(f'frame{self.env_id}_r{self.total_reward:.4f}_{self.reset_count}_{name}_{str(uuid_str)[:4]}.jpeg'),
+            ss_dir / Path(f'frame{self.env_id}_r{self.env.unwrapped.boey_total_reward:.4f}_{self.env.unwrapped.boey_reset_count}_{name}_{str(uuid_str)[:4]}.jpeg'),
             self.render(reduce_res=False))
