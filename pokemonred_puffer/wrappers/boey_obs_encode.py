@@ -58,7 +58,6 @@ class ObsWrapper(gym.Wrapper):
         self.pokecenter_ids = [0x01, 0x02, 0x03, 0x0F, 0x15, 0x05, 0x06, 0x04, 0x07, 0x08, 0x0A]
         self.output_vector_shape = (54, )
 
-
 # [0]
 #[0,0]
 
@@ -155,6 +154,8 @@ class ObsWrapper(gym.Wrapper):
             full_obs = dict(obs, **self._get_obs())
         else:
             full_obs = obs
+
+            
         self.init_caches()
         self.update_last_center()
         self.update_past_events()

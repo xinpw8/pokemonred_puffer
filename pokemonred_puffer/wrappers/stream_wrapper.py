@@ -43,9 +43,9 @@ class StreamWrapper(gym.Wrapper):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self.websocket = self.loop.run_until_complete(self.establish_wc_connection())
-        self.upload_interval = 150 # 300
+        self.upload_interval = 300
         self.steam_step_counter = 0
-        self.steam_step_counter_resets = 0
+
         self.coord_list = []
         if hasattr(env, "pyboy"):
             self.emulator = env.pyboy
@@ -60,7 +60,7 @@ class StreamWrapper(gym.Wrapper):
         if not os.path.exists(f"coords/{self.env_id}"):
             os.makedirs(f"coords/{self.env_id}")
         directory_path = f"coords/{self.env_id}"
-        self.file_name = f"env_{self.env_id}_reset_{self.steam_step_counter_resets}_coords.json.gz"
+        self.file_name = f"env_{self.env_id}_reset_{self.steam_step_counter}_coords.json.gz"
         self.file_path = f"{directory_path}/{self.file_name}"
 
         

@@ -12,6 +12,10 @@ from pokemonred_puffer.pokered_constants import MAP_DICT, MAP_ID_REF, WARP_DICT,
     SPECIES_TO_ID, ID_TO_SPECIES, CHARMAP, MOVES_INFO_DICT, MART_MAP_IDS, MART_ITEMS_ID_DICT, ITEM_TM_IDS_PRICES
 from pokemonred_puffer.ram_addresses import RamAddress as RAM
 from pokemonred_puffer.stage_manager import StageManager, STAGE_DICT, POKECENTER_TO_INDEX_DICT
+
+# import methods from boey_obs_encode wrapper
+from pokemonred_puffer.wrappers.boey_obs_encode import ObsWrapper
+
 from typing import Union
 import matplotlib.pyplot as plt
 import json
@@ -48,7 +52,15 @@ logging.basicConfig(
 class StageManagerWrapper(gym.Wrapper):
     def __init__(self, env: RedGymEnv, env_config: pufferlib.namespace):
         super().__init__(env)
-
+        self.env = env
+        self.time = self.env.step_count
+        if hasattr(env, "pyboy"):
+            self.pyboy = self.env.pyboy
+        elif hasattr(env, "game"):
+            self.pyboy = self.env.game
+        else:
+            raise Exception("Could not find emulator!")
+        
         # Access config items directly using attribute access
         self.s_path = self.env.session_path
         self.save_final_state = self.env.save_final_state
@@ -78,8 +90,7 @@ class StageManagerWrapper(gym.Wrapper):
         self.level_reward_badge_scale = self.env.unwrapped.level_reward_badge_scale if self.env.unwrapped.level_reward_badge_scale is not None else 0
         self.instance_id = self.env.unwrapped.instance_id if self.env.unwrapped.instance_id is not None else str(uuid.uuid4())[:8]
         self.start_from_state_dir = self.env.unwrapped.start_from_state_dir if self.env.unwrapped.start_from_state_dir is not None else None
-        self.save_state_dir = self.env.unwrapped.save_state_dir if self.env.unwrapped.save_state_dir is not None else None
-        self.save_state_dir = Path(self.save_state_dir) if self.save_state_dir is not None else None
+        self.save_state_dir = Path(self.unwrapped.save_state_dir) if self.env.unwrapped.save_state_dir is not None else None
         self.randomization = self.env.unwrapped.randomization if self.env.unwrapped.randomization is not None else 0
         self.special_exploration_scale = self.env.unwrapped.special_exploration_scale if self.env.unwrapped.special_exploration_scale is not None else 0
         self.enable_item_manager = self.env.unwrapped.enable_item_manager if self.env.unwrapped.enable_item_manager is not None else False
@@ -156,6 +167,143 @@ class StageManagerWrapper(gym.Wrapper):
 
         self.noop_button_index = self.valid_actions.index(WindowEvent.PASS)
         self.swap_button_index = self.valid_actions.index(988)
+
+    
+    
+        # need to init these
+        self.init_caches()
+        
+    # define ObsWrapper methods    
+    
+    def update_cut_badge(self):
+        if not self._cut_badge:
+            self._cut_badge = self.read_ram_bit(RAM.wObtainedBadges, 1) == 1
+
+    def update_surf_badge(self):
+        if not self._cut_badge:
+            return
+        if not self._surf_badge:
+            self._surf_badge = self.read_ram_bit(RAM.wObtainedBadges, 4) == 1
+    def is_battle_actionable(self) -> Union[bool, str]:
+        tile_map_base = 0xc3a0
+        text_box_id = self.read_ram_m(RAM.wTextBoxID)
+        is_safari_battle = self.read_ram_m(RAM.wBattleType) == 2
+        if is_safari_battle:
+            if text_box_id == 0x1b and \
+                self.read_m(tile_map_base + 14 * 20 + 14) == CHARMAP["B"] and \
+                self.read_m(tile_map_base + 14 * 20 + 15) == CHARMAP["A"]:
+                return True
+            elif text_box_id == 0x14 and \
+                self.read_ram_m(RAM.wTopMenuItemX) == 15 and \
+                self.read_ram_m(RAM.wTopMenuItemY) == 8 and \
+                self.read_m(tile_map_base + 14 * 20 + 8) == CHARMAP["n"] and \
+                self.read_m(tile_map_base + 14 * 20 + 9) == CHARMAP["i"] and \
+                self.read_m(tile_map_base + 14 * 20 + 10) == CHARMAP["c"]:
+                # nickname for caught pokemon
+                return 'NICKNAME'
+        elif text_box_id == 0x0b and \
+            self.read_m(tile_map_base + 14 * 20 + 16) == CHARMAP["<PK>"] and \
+            self.read_m(tile_map_base + 14 * 20 + 17) == CHARMAP["<MN>"]:
+            # battle menu
+            # if self.print_debug: print(f'is in battle menu at step {self.step_count}')
+            return True
+        elif text_box_id in [0x0b, 0x01] and \
+            self.read_m(tile_map_base + 17 * 20 + 4) == CHARMAP["└"] and \
+            self.read_m(tile_map_base + 8 * 20 + 10) == CHARMAP["┐"] and \
+            self.read_ram_m(RAM.wTopMenuItemX) == 5 and \
+            self.read_ram_m(RAM.wTopMenuItemY) == 12:
+            # fight submenu
+            # if self.print_debug: print(f'is in fight submenu at step {self.step_count}')
+            return True
+        elif text_box_id == 0x0d and \
+            self.read_m(tile_map_base + 2 * 20 + 4) == CHARMAP["┌"] and \
+            self.read_ram_m(RAM.wTopMenuItemX) == 5 and \
+            self.read_ram_m(RAM.wTopMenuItemY) == 4:
+            # bag submenu
+            # if self.print_debug: print(f'is in bag submenu at step {self.step_count}')
+            return True
+        elif text_box_id == 0x01 and \
+            self.read_m(tile_map_base + 14 * 20 + 1) == CHARMAP["C"] and \
+            self.read_m(tile_map_base + 14 * 20 + 2) == CHARMAP["h"] and \
+            self.read_m(tile_map_base + 14 * 20 + 3) == CHARMAP["o"]:
+            # choose pokemon
+            # if self.print_debug: print(f'is in choose pokemon at step {self.step_count}')
+            return True
+        elif text_box_id == 0x01 and \
+            self.read_m(tile_map_base + 14 * 20 + 1) == CHARMAP["B"] and \
+            self.read_m(tile_map_base + 14 * 20 + 2) == CHARMAP["r"] and \
+            self.read_m(tile_map_base + 14 * 20 + 3) == CHARMAP["i"]:
+            # choose pokemon after opponent fainted
+            # choose pokemon after party pokemon fainted
+            # if self.print_debug: print(f'is in choose pokemon after opponent fainted at step {self.step_count}')
+            return True
+        elif text_box_id == 0x01 and \
+            self.read_m(tile_map_base + 14 * 20 + 1) == CHARMAP["U"] and \
+            self.read_m(tile_map_base + 14 * 20 + 2) == CHARMAP["s"] and \
+            self.read_m(tile_map_base + 14 * 20 + 3) == CHARMAP["e"] and \
+            self.read_m(tile_map_base + 16 * 20 + 8) == CHARMAP["?"]:
+            # use item in party submenu
+            # if self.print_debug: print(f'is in use item in party submenu at step {self.step_count}')
+            return True
+        elif text_box_id == 0x0c and \
+            self.read_m(tile_map_base + 12 * 20 + 13) == CHARMAP["S"] and \
+            self.read_m(tile_map_base + 12 * 20 + 14) == CHARMAP["W"]:
+            # switch pokemon
+            return 'SWITCH'
+        elif text_box_id == 0x14 and \
+            self.read_ram_m(RAM.wTopMenuItemX) == 1 and \
+            self.read_ram_m(RAM.wTopMenuItemY) == 8 and \
+            self.read_m(tile_map_base + 16 * 20 + 1) == CHARMAP["c"] and \
+            self.read_m(tile_map_base + 16 * 20 + 2) == CHARMAP["h"] and \
+            self.read_m(tile_map_base + 16 * 20 + 15) == CHARMAP["?"]:
+            # change pokemon yes no menu
+            # if self.print_debug: print(f'is in change pokemon yes no menu at step {self.step_count}')
+            return True
+        elif text_box_id == 0x14 and \
+            self.read_ram_m(RAM.wTopMenuItemX) == 15 and \
+            self.read_ram_m(RAM.wTopMenuItemY) == 8 and \
+            self.read_m(tile_map_base + 14 * 20 + 9) == CHARMAP["m"] and \
+            self.read_m(tile_map_base + 14 * 20 + 10) == CHARMAP["a"] and \
+            self.read_m(tile_map_base + 14 * 20 + 11) == CHARMAP["k"]:
+            # make room for new move
+            return 'NEW_MOVE'
+        elif text_box_id == 0x01 and \
+            self.read_ram_m(RAM.wTopMenuItemX) == 5 and \
+            self.read_ram_m(RAM.wTopMenuItemY) == 8 and \
+            self.read_m(tile_map_base + 16 * 20 + 10) == CHARMAP["t"] and \
+            self.read_m(tile_map_base + 16 * 20 + 11) == CHARMAP["e"] and \
+            self.read_m(tile_map_base + 16 * 20 + 12) == CHARMAP["n"] and \
+            self.read_m(tile_map_base + 16 * 20 + 13) == CHARMAP["?"] and \
+            self.read_ram_m(RAM.wMaxMenuItem) == 3:
+            # choose move to replace
+            return 'REPLACE_MOVE'
+        elif text_box_id == 0x14 and \
+            self.read_ram_m(RAM.wTopMenuItemX) == 15 and \
+            self.read_ram_m(RAM.wTopMenuItemY) == 8 and \
+            self.read_m(tile_map_base + 14 * 20 + 1) == CHARMAP["A"] and \
+            self.read_m(tile_map_base + 14 * 20 + 2) == CHARMAP["b"] and \
+            self.read_m(tile_map_base + 14 * 20 + 3) == CHARMAP["a"]:
+            # do not learn move
+            return 'ABANDON_MOVE'
+        elif text_box_id == 0x14 and \
+            self.read_ram_m(RAM.wTopMenuItemX) == 15 and \
+            self.read_ram_m(RAM.wTopMenuItemY) == 8 and \
+            self.read_m(tile_map_base + 14 * 20 + 8) == CHARMAP["n"] and \
+            self.read_m(tile_map_base + 14 * 20 + 9) == CHARMAP["i"] and \
+            self.read_m(tile_map_base + 14 * 20 + 10) == CHARMAP["c"]:
+            # nickname for caught pokemon
+            return 'NICKNAME'
+        return False
+    
+    def update_last_10_coords(self, *args, **kwargs):
+        return ObsWrapper.update_last_10_coords(self, *args, **kwargs)
+
+    def update_seen_map_dict(self, *args, **kwargs):
+        return ObsWrapper.update_seen_map_dict(self, *args, **kwargs)
+        
+    def update_last_10_map_ids(self, *args, **kwargs):
+        return ObsWrapper.update_last_10_map_ids(self, *args, **kwargs)
+    
     
     def set_memory_value(self, address, value):
         self.pyboy.memory[address] = value
@@ -347,12 +495,14 @@ class StageManagerWrapper(gym.Wrapper):
                 # load the state randomly from the directory
                 state_dir = np.random.choice(selected_state_dirs)
                 print(f'env_id: {self.env_id}, load state {state_dir}, level: {self.current_level}')
-                self.env.unwrapped.load_state(state_dir)
+                self.load_state(state_dir)
         if self.current_level == 0:
             print(f'env_id: {self.env_id}, level: {self.current_level}')
 
             # state_to_init = os.path.join(self.env.unwrapped.state_dir, f"{self.env.unwrapped.init_state}.state")
             state_to_init = '/bet_adsorption_xinpw8/1.0_events_obs_boey_wrapper/pokemonred_puffer/pokemonred_puffer/pyboy_states/stock_starting_states/Bulbasaur.state'
+            # state_to_init = self.env.unwrapped.state_dir / f"{state_to_init}.state" if isinstance(state_to_init, str) else state_to_init
+            # state_to_init = self.env.unwrapped.init_state_path
             if self.randomization:
                 assert isinstance(self.randomization, float)
                 if np.random.rand() < self.randomization:
@@ -363,7 +513,7 @@ class StageManagerWrapper(gym.Wrapper):
             # restart game, skipping credits
 
             with open(state_to_init, "rb") as f:
-                self.env.unwrapped.load_state(f)
+                self.pyboy.load_state(f)
             
             self.recent_frames = np.zeros(
                 (self.frame_stacks, self.output_shape[0], 
@@ -395,9 +545,9 @@ class StageManagerWrapper(gym.Wrapper):
             assert len(self.all_events_string) == 2552, f'len(self.all_events_string): {len(self.all_events_string)}'
             self.rewarded_events_string = '0' * 2552
             self.seen_map_dict = {}
-            self.env.unwrapped.update_last_10_map_ids()
-            self.env.unwrapped.update_last_10_coords()
-            self.env.unwrapped.update_seen_map_dict()
+            self.update_last_10_map_ids()
+            self.update_last_10_coords()
+            self.update_seen_map_dict()
             self._cut_badge = False
             self._have_hm01 = False
             self._can_use_cut = False
@@ -473,6 +623,7 @@ class StageManagerWrapper(gym.Wrapper):
                         is_action_taken = True
                         # else:
                         #     break
+                        
                     elif is_actionable == 'SWITCH':
                         # auto switch
                         if self.read_ram_m(RAM.wCurrentMenuItem) != 0:
@@ -559,11 +710,11 @@ class StageManagerWrapper(gym.Wrapper):
 
         # self.append_agent_stats(action)
 
-        self.env.unwrapped.update_cut_badge()
-        self.env.unwrapped.update_surf_badge()
-        self.env.unwrapped.update_last_10_map_ids()
-        self.env.unwrapped.update_last_10_coords()
-        self.env.unwrapped.update_seen_map_dict()
+        self.update_cut_badge()
+        self.update_surf_badge()
+        self.update_last_10_map_ids()
+        self.update_last_10_coords()
+        self.update_seen_map_dict()
         self.update_visited_pokecenter_list()
         self.recent_frames = np.roll(self.recent_frames, 1, axis=0)
         self.minor_patch()
@@ -1066,28 +1217,28 @@ class StageManagerWrapper(gym.Wrapper):
             self.pyboy.send_input(self.valid_actions[action])
         else:
             self.pyboy.send_input(emulated)
-        # disable rendering when we don't need it
-        # if self.headless and (self.fast_video or not self.save_video):
-        if emulated or (self.headless and (self.fast_video or not self.save_video)):
-            self.pyboy._rendering(False)
+
         for i in range(self.act_freq):
             # release action, so they are stateless
             if i == 8:
                 if action < 4:
                     # release arrow
                     self.pyboy.send_input(self.release_arrow[action])
-                if action > 3 and action < 6:
+                if 3 < action < 6:
                     # release button 
                     self.pyboy.send_input(self.release_button[action - 4])
                 if not emulated and self.valid_actions[action] == WindowEvent.PRESS_BUTTON_START:
                     self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START)
                 elif emulated and emulated == WindowEvent.PRESS_BUTTON_START:
                     self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START)
+            
+            # Disable rendering if not needed
+            render = not (emulated or (self.headless and (self.fast_video or not self.save_video)))
+            self.pyboy.tick(render=render)
+            
             if self.save_video and not self.fast_video:
                 self.add_video_frame()
-            if i == self.act_freq-1 and not emulated and not self.can_auto_press_a():
-                self.pyboy._rendering(True)
-            self.pyboy.tick()
+        
         if self.save_video and self.fast_video:
             self.add_video_frame()
     
@@ -1304,6 +1455,94 @@ class StageManagerWrapper(gym.Wrapper):
             done = True
         return done
 
+    def get_highest_reward_state_dir_based_on_reset_count(self, dirs_given, weightage=0.01):
+        '''
+        path_given is all_state_dirs
+        all_state_dirs is self.start_from_state_dir.glob('*')
+        state folders name as such '{self.total_reward:5.2f}_{session_id}_{self.instance_id}_{self.reset_count}'
+        return the state folder with highest total_reward divided by reset_count.
+        '''
+        if not dirs_given:
+            return None
+        if weightage <= 0:
+            print(f'weightage should be greater than 0, weightage: {weightage}')
+            weightage = 0.01
+        dirs_given = list(dirs_given)
+        # get highest total_reward divided by reset_count
+        return max(dirs_given, key=lambda x: float(x.name.split('_')[0]) / (float(x.name.split('_')[-1]) + weightage))
+    
+    def debug_save(self, is_failed=True):
+        return self.save_all_states(is_failed=is_failed)
+    
+    def save_all_states(self, is_failed=False):
+        # STATES_TO_SAVE_LOAD = ['recent_frames', 'agent_stats', 'base_explore', 'max_opponent_level', 'max_event_rew', 'max_level_rew', 'last_health', 'last_num_poke', 'last_num_mon_in_box', 'total_healing_rew', 'died_count', 'prev_knn_rew', 'visited_pokecenter_list', 'last_10_map_ids', 'last_10_coords', 'past_events_string', 'last_10_event_ids', 'early_done', 'step_count', 'past_rewards', 'base_event_flags', 'rewarded_events_string', 'seen_map_dict', '_cut_badge', '_have_hm01', '_can_use_cut', '_surf_badge', '_have_hm03', '_can_use_surf', '_have_pokeflute', '_have_silph_scope', 'used_cut_coords_dict', '_last_item_count', '_is_box_mon_higher_level', 'hideout_elevator_maps', 'use_mart_count', 'use_pc_swap_count']
+        # pyboy state file, 
+        # state pkl file, 
+        if not self.save_state_dir:
+            return
+        self.save_state_dir.mkdir(exist_ok=True)
+        # state_dir naming, state_dir/{current_level}/{datetime}_{step_count}_{total_reward:5.2f}/ .state | .pkl
+        if not is_failed:
+            level_increment = 1
+            # if self.level_completed_skip_type == 1:
+            #     # special case
+            #     level_increment = 2
+            state_dir = self.save_state_dir / Path(f'level_{self.current_level + level_increment}')  # + 1 for next level
+        else:
+            # create failed folder
+            state_dir = self.save_state_dir / Path(f'failed')
+            state_dir.mkdir(exist_ok=True)
+            state_dir = self.save_state_dir / Path(f'failed/level_{self.current_level}')
+        state_dir.mkdir(exist_ok=True)
+        datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        state_dir = state_dir / Path(f'{datetime_str}_{self.step_count}_{self.total_reward:5.2f}')
+        state_dir.mkdir(exist_ok=True)
+        # state pkl file all the required variables defined in self.reset()
+        # recent_frames, agent_stats, base_explore, max_opponent_level, max_event_rew, max_level_rew, last_health, last_num_poke, last_num_mon_in_box, total_healing_rew, died_count, prev_knn_rew, visited_pokecenter_list, last_10_map_ids, last_10_coords, past_events_string, last_10_event_ids, early_done, step_count, past_rewards, base_event_flags, rewarded_events_string, seen_map_dict, _cut_badge, _have_hm01, _can_use_cut, _surf_badge, _have_hm03, _can_use_surf, _have_pokeflute, _have_silph_scope, used_cut_coords_dict, _last_item_count, _is_box_mon_higher_level, hideout_elevator_maps, use_mart_count, use_pc_swap_count
+        with open(state_dir / Path('state.pkl'), 'wb') as f:
+            state = {key: getattr(self, key) for key in STATES_TO_SAVE_LOAD}
+            if self.enable_stage_manager:
+                state['stage_manager'] = self.stage_manager
+            pickle.dump(state, f)
+        # pyboy state file
+        with open(state_dir / Path('state.state'), 'wb') as f:
+            self.pyboy.save_state(f)
+
+    def load_state(self, state_dir):
+        # STATES_TO_SAVE_LOAD
+        with open(state_dir / Path('state.state'), 'rb') as f:
+            self.pyboy.load_state(f)
+        with open(state_dir / Path('state.pkl'), 'rb') as f:
+            state = pickle.load(f)
+            if 'party_level_base' not in state:
+                state['party_level_base'] = 0
+            if 'party_level_post' not in state:
+                state['party_level_post'] = 0
+            if 'secret_switch_states' not in state:
+                state['secret_switch_states'] = {}
+            for key in STATES_TO_SAVE_LOAD:
+                # if key == 'secret_switch_states' and key not in state:
+                #     self.secret_switch_states = {}
+                # else:
+                setattr(self, key, state[key])
+            if self.enable_stage_manager:
+                self.stage_manager = state['stage_manager']
+        self.reset_count = 0
+        # self.step_count = 0
+        self.early_done = False
+        self.update_last_10_map_ids()
+        self.update_last_10_coords()
+        self.update_seen_map_dict()
+        # self.past_rewards = np.zeros(10240, dtype=np.float32)
+        self.progress_reward = self.get_game_state_reward()
+        self.total_reward = sum([val for _, val in self.progress_reward.items()])
+        self.past_rewards[0] = self.total_reward - self.get_knn_reward_exclusion() - self.progress_reward['heal'] - self.get_dead_reward()
+        # set all past reward to current total reward, so that the agent will not be penalized for the first step
+        self.past_rewards[1:] = self.past_rewards[0] - (self.early_stopping_min_reward * self.reward_scale)
+        self.reset_count += 1
+        # if self.enable_stage_manager:
+        #     self.update_stage_manager()
+
     def save_and_print_info(self, done, obs_memory):
         if self.print_rewards:
             if self.step_count % 5 == 0:
@@ -1356,13 +1595,13 @@ class StageManagerWrapper(gym.Wrapper):
         if self.save_state_dir:
             if done:
                 if self.level_completed:
-                    self.env.unwrapped.save_all_states()
+                    self.save_all_states()
                 elif not self.early_done:
                     # do not save early done at all, useless info
-                    self.env.unwrapped.save_all_states(is_failed=True)
+                    self.save_all_states(is_failed=True)
                 self.record_statistic()
             elif self.level_completed and self.level_manager_eval_mode:
-                self.env.unwrapped.save_all_states()
+                self.save_all_states()
                 self.record_statistic()
 
         if done:

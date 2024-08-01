@@ -162,7 +162,7 @@ train:
   seed: 1
   torch_deterministic: True
   device: cuda
-  compile: False # True testing
+  compile: False # True # False for testing
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
   total_timesteps: 100_000_000_000
@@ -185,9 +185,9 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 12 # 288 # 96 # 288 # 96
-  num_workers: 12 #24 # 24
-  env_batch_size: 4 # 72 # 32 # 72 # 8
+  num_envs: 288 # 96 # 288 # 96
+  num_workers: 24 # 24
+  env_batch_size: 72 # 32 # 72 # 8
   env_pool: True
   zero_copy: False
 

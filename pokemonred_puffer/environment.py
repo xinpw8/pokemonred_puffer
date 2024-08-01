@@ -238,6 +238,9 @@ class RedGymEnv(Env):
         self.seen_bag_menu = 0
         self.seen_action_bag_menu = 0
         self.step_count = 0
+        self.seen_hidden_objs = {}
+        self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+        self.cut_explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
         
         # events
         self.previous_true_events = {}
@@ -390,6 +393,7 @@ class RedGymEnv(Env):
             log_level="CRITICAL",
             symbols=os.path.join(os.path.dirname(__file__), "pokered.sym"),
         )
+        
         self.register_hooks()
         if not self.headless:
             self.pyboy.set_emulation_speed(6)
@@ -499,7 +503,7 @@ class RedGymEnv(Env):
     def update_state(self, state: bytes):
         self.reset(seed=random.randint(0, 10), options={"state": state})
 
-    def save_all_states(self):
+    def save_all_states_bet(self):
         _, _, map_n = self.get_game_coords()  # c, r, map_n
         map_name = get_map_name(map_n)
         
@@ -624,7 +628,7 @@ class RedGymEnv(Env):
         
         self.last_coords = self.get_game_coords()
         if self.reset_count % 1 == 0 and map_n == 33: # on route 22
-            self.save_all_states()
+            self.save_all_states_bet()
         
         if self.load_furthest_map_n_on_reset:
             if self.reset_count % 6 == 0:
@@ -1243,7 +1247,7 @@ class RedGymEnv(Env):
             and self.global_step_count > 0
             and self.global_step_count % self.save_each_env_state_freq == 0
         ):
-            self.save_all_states()
+            self.save_all_states_bet()
 
         obs = self._get_obs()
 
@@ -2002,7 +2006,7 @@ class RedGymEnv(Env):
         else:
             logging.warning(f"env_id: {self.env_id}: Furthest state file not found: {state_file}")
 
-    def load_state(self, state_file):
+    def load_state_bet(self, state_file):
         self.pyboy.load_state(state_file)
     
     def get_items_in_bag(self) -> Iterable[int]:
@@ -2699,61 +2703,61 @@ class RedGymEnv(Env):
 
 #############################
 ### left off here
-    def update_last_10_map_ids(self):
-        current_modified_map_id = self.read_m(0xD35E) + 1
-        # check if current_modified_map_id is in last_10_map_ids
-        if current_modified_map_id == self.last_10_map_ids[0][0]:
-            return
-        else:
-            # if self.last_10_map_ids[0][0] != 0:
-            #     print(f'map changed from {MAP_ID_REF[self.last_10_map_ids[0][0] - 1]} to {MAP_ID_REF[current_modified_map_id - 1]} at step {self.step_count}')
-            self.last_10_map_ids = np.roll(self.last_10_map_ids, 1, axis=0)
-            self.last_10_map_ids[0] = [current_modified_map_id, self.time]
-            map_id = current_modified_map_id - 1
-            if map_id in [0x6C, 0xC2, 0xC6, 0x22]:
-                self.minor_patch_victory_road()
-            # elif map_id == 0x09:
-            if map_id not in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
-                if self.last_10_map_ids[1][0] - 1 in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
-                    # lost in elite 4
-                    self.elite_4_lost = True
-                    self.elite_4_started_step = None
-            if map_id == 0xF5:
-                # elite four first room
-                # reset elite 4 lost flag
-                if self.elite_4_lost:
-                    self.elite_4_lost = False
-                if self.elite_4_started_step is None:
-                    self.elite_4_started_step = self.time               
+    # def update_last_10_map_ids(self):
+    #     current_modified_map_id = self.read_m(0xD35E) + 1
+    #     # check if current_modified_map_id is in last_10_map_ids
+    #     if current_modified_map_id == self.last_10_map_ids[0][0]:
+    #         return
+    #     else:
+    #         # if self.last_10_map_ids[0][0] != 0:
+    #         #     print(f'map changed from {MAP_ID_REF[self.last_10_map_ids[0][0] - 1]} to {MAP_ID_REF[current_modified_map_id - 1]} at step {self.step_count}')
+    #         self.last_10_map_ids = np.roll(self.last_10_map_ids, 1, axis=0)
+    #         self.last_10_map_ids[0] = [current_modified_map_id, self.time]
+    #         map_id = current_modified_map_id - 1
+    #         if map_id in [0x6C, 0xC2, 0xC6, 0x22]:
+    #             self.minor_patch_victory_road()
+    #         # elif map_id == 0x09:
+    #         if map_id not in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
+    #             if self.last_10_map_ids[1][0] - 1 in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
+    #                 # lost in elite 4
+    #                 self.elite_4_lost = True
+    #                 self.elite_4_started_step = None
+    #         if map_id == 0xF5:
+    #             # elite four first room
+    #             # reset elite 4 lost flag
+    #             if self.elite_4_lost:
+    #                 self.elite_4_lost = False
+    #             if self.elite_4_started_step is None:
+    #                 self.elite_4_started_step = self.time               
 
-    def update_last_10_coords(self):
-        current_coord = np.array([self.read_m(0xD362), self.read_m(0xD361)])
-        # check if current_coord is in last_10_coords
-        if (current_coord == self.last_10_coords[0]).all():
-            return
-        else:
-            self.last_10_coords = np.roll(self.last_10_coords, 1, axis=0)
-            self.last_10_coords[0] = current_coord                  
+    # def update_last_10_coords(self):
+    #     current_coord = np.array([self.read_m(0xD362), self.read_m(0xD361)])
+    #     # check if current_coord is in last_10_coords
+    #     if (current_coord == self.last_10_coords[0]).all():
+    #         return
+    #     else:
+    #         self.last_10_coords = np.roll(self.last_10_coords, 1, axis=0)
+    #         self.last_10_coords[0] = current_coord                  
             
     
-    def update_seen_map_dict(self):
-        # if self.get_minimap_warp_obs()[4, 4] != 0:
-        #     return
-        cur_map_id = self.current_map_id - 1
-        x, y = self.current_coords
-        if cur_map_id not in self.seen_map_dict:
-            self.seen_map_dict[cur_map_id] = np.zeros((MAP_DICT[MAP_ID_REF[cur_map_id]]['height'], MAP_DICT[MAP_ID_REF[cur_map_id]]['width']), dtype=np.float32)
+    # def update_seen_map_dict(self):
+    #     # if self.get_minimap_warp_obs()[4, 4] != 0:
+    #     #     return
+    #     cur_map_id = self.current_map_id - 1
+    #     x, y = self.current_coords
+    #     if cur_map_id not in self.seen_map_dict:
+    #         self.seen_map_dict[cur_map_id] = np.zeros((MAP_DICT[MAP_ID_REF[cur_map_id]]['height'], MAP_DICT[MAP_ID_REF[cur_map_id]]['width']), dtype=np.float32)
             
-        # # do not update if is warping
-        if not self.is_warping:
-            if y >= self.seen_map_dict[cur_map_id].shape[0] or x >= self.seen_map_dict[cur_map_id].shape[1]:
-                self.stuck_cnt += 1
-                print(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.seen_map_dict[cur_map_id].shape}')
-                if self.stuck_cnt > 50:
-                    print(f'stucked for > 50 steps, force ES')
-                    self.early_done = True
-                    self.stuck_cnt = 0
-                # print(f'ERROR2: last 10 map ids: {self.last_10_map_ids}')
-            else:
-                self.stuck_cnt = 0
-                self.seen_map_dict[cur_map_id][y, x] = self.time
+    #     # # do not update if is warping
+    #     if not self.is_warping:
+    #         if y >= self.seen_map_dict[cur_map_id].shape[0] or x >= self.seen_map_dict[cur_map_id].shape[1]:
+    #             self.stuck_cnt += 1
+    #             print(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.seen_map_dict[cur_map_id].shape}')
+    #             if self.stuck_cnt > 50:
+    #                 print(f'stucked for > 50 steps, force ES')
+    #                 self.early_done = True
+    #                 self.stuck_cnt = 0
+    #             # print(f'ERROR2: last 10 map ids: {self.last_10_map_ids}')
+    #         else:
+    #             self.stuck_cnt = 0
+    #             self.seen_map_dict[cur_map_id][y, x] = self.time
