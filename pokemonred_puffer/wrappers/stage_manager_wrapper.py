@@ -49,9 +49,11 @@ logging.basicConfig(
     level=logging.INFO,  # Log level
 )
 
-class StageManagerWrapper(gym.Wrapper):
+# logging.info(f'stage_manager_wrapper.py -> logging init at INFO level')
+
+class StageManagerWrapper(ObsWrapper):
     def __init__(self, env: RedGymEnv, env_config: pufferlib.namespace):
-        super().__init__(env)
+        super().__init__(env, config=env_config)
         self.env = env
         self.time = self.env.step_count
         if hasattr(env, "pyboy"):
@@ -172,6 +174,62 @@ class StageManagerWrapper(gym.Wrapper):
     
         # need to init these
         self.init_caches()
+        self.recent_frames = np.zeros(
+            (self.frame_stacks, self.output_shape[0], 
+            self.output_shape[1]),
+            dtype=np.uint8)
+
+        # init high to prevent issues
+        self.env.unwrapped.init_mem()
+        
+        
+        self.agent_stats = []
+        self.base_explore = 0
+        self.max_opponent_level = 0
+        self.max_event_rew = 0
+        self.max_level_rew = 0
+        self.party_level_base = 0
+        self.party_level_post = 0
+        self.last_health = 1
+        self.last_num_poke = 1
+        self.last_num_mon_in_box = 0
+        self.total_healing_rew = 0
+        self.died_count = 0
+        self.prev_knn_rew = 0
+        self.visited_pokecenter_list = []
+        self.last_10_map_ids = np.zeros((10, 2), dtype=np.float32)
+        self.last_10_coords = np.zeros((10, 2), dtype=np.uint8)
+        self.past_events_string = ''
+        self.last_10_event_ids = np.zeros((128, 2), dtype=np.float32)
+        self.early_done = False
+        self.step_count = 0
+        self.past_rewards = np.zeros(10240, dtype=np.float32)
+        self.base_event_flags = self.get_base_event_flags()
+        # logging.info(f'stage_manager_wrapper.py -> base_event_flags init: base_event_flags: {self.base_event_flags}')
+        assert len(self.all_events_string) == 2552, f'len(self.all_events_string): {len(self.all_events_string)}'
+        self.rewarded_events_string = '0' * 2552
+        self.seen_map_dict = {}
+        self.update_last_10_map_ids()
+        self.update_last_10_coords()
+        self.update_seen_map_dict()
+        self._cut_badge = False
+        self._have_hm01 = False
+        self._can_use_cut = False
+        self._surf_badge = False
+        self._have_hm03 = False
+        self._can_use_surf = False
+        self._have_pokeflute = False
+        self._have_silph_scope = False
+        self.used_cut_coords_dict = {}
+        self._last_item_count = 0
+        self._is_box_mon_higher_level = False
+        self.secret_switch_states = {}
+        self.hideout_elevator_maps = []
+        self.use_mart_count = 0
+        self.use_pc_swap_count = 0
+    
+        
+        
         
     # define ObsWrapper methods    
     
@@ -184,6 +242,7 @@ class StageManagerWrapper(gym.Wrapper):
             return
         if not self._surf_badge:
             self._surf_badge = self.read_ram_bit(RAM.wObtainedBadges, 4) == 1
+            
     def is_battle_actionable(self) -> Union[bool, str]:
         tile_map_base = 0xc3a0
         text_box_id = self.read_ram_m(RAM.wTextBoxID)
@@ -582,7 +641,7 @@ class StageManagerWrapper(gym.Wrapper):
             # self.model_frame_writer = media.VideoWriter(base_dir / model_name, self.output_full[:2], fps=60)
             # self.model_frame_writer.__enter__()
        
-        return self.env.unwrapped.render(), {}   
+        return self.env.render(), {}   
     
          
     def step(self, action):
@@ -597,7 +656,7 @@ class StageManagerWrapper(gym.Wrapper):
                 actionable_cnt = 0
                 self.print_debug = False
                 while True:
-                    is_actionable = self.env.unwrapped.is_battle_actionable()
+                    is_actionable = self.is_battle_actionable()
                     actionable_cnt += 1
                     # if actionable_cnt > 120:  # so far the longest non-actionable loop is around 90
                     #     self.print_debug = True
@@ -720,7 +779,7 @@ class StageManagerWrapper(gym.Wrapper):
         self.minor_patch()
         if self.enable_item_manager:
             self.scripted_manage_items()
-        obs_memory = self.render()
+        obs_memory = self.env.render()
 
 
         # if self.use_screen_explore:
@@ -1243,8 +1302,8 @@ class StageManagerWrapper(gym.Wrapper):
             self.add_video_frame()
     
     def add_video_frame(self):
-        self.full_frame_writer.add_image(self.render(reduce_res=False, update_mem=False))
-        # self.model_frame_writer.add_image(self.render(reduce_res=True, update_mem=False))
+        self.full_frame_writer.add_image(self.env.render()) # , update_mem=False))
+        # self.model_frame_writer.add_image(self.env.render(reduce_res=True, update_mem=False))
 
     # @property
     # def last_episode_stats(self):
@@ -1563,7 +1622,7 @@ class StageManagerWrapper(gym.Wrapper):
             try:
                 plt.imsave(
                     self.s_path / Path(f'curframe_{self.env_id}.jpeg'), 
-                    self.render(reduce_res=False))
+                    self.env.render())
             except:
                 pass
 
@@ -1578,7 +1637,7 @@ class StageManagerWrapper(gym.Wrapper):
                     #     rearrange(obs_memory['image'], 'c h w -> h w c'))
                     plt.imsave(
                         fs_path / Path(f'frame_r{self.total_reward:.4f}_{self.reset_count}_full.jpeg'), 
-                        self.render(reduce_res=False))
+                        self.env.render())
                 except Exception as e:
                     print(f'error saving final state: {e}')
                 # if self.save_state_dir:
@@ -2025,7 +2084,7 @@ class StageManagerWrapper(gym.Wrapper):
         uuid_str = uuid.uuid4().hex
         plt.imsave(
             ss_dir / Path(f'frame{self.env_id}_r{self.total_reward:.4f}_{self.reset_count}_{name}_{str(uuid_str)[:4]}.jpeg'),
-            self.render(reduce_res=False))
+            self.env.render())
     
     def update_max_op_level(self):
         #opponent_level = self.read_m(0xCFE8) - 5 # base level

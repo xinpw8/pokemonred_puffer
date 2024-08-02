@@ -239,19 +239,18 @@ wrappers:
         jitter: 0
 
   stream_only:
+    - stage_manager_wrapper.StageManagerWrapper: {}
+    - boey_obs_encode.ObsWrapper: {}
     - stream_wrapper.StreamWrapper:
         user: bet_bet_bet 
     - exploration.OnResetExplorationWrapper:
         full_reset_frequency: 1
         jitter: 1
-    - boey_obs_encode.ObsWrapper: {}
-    - stage_manager_wrapper.StageManagerWrapper: {}
 
-  # 
-  #boey_obs:
-  #  - boey_obs_encode.ObsWrapper: {}
+
   
-  
+  # stage_manager_wrapper:
+  #   - stage_manager_wrapper.StageManagerWrapper: {}
 
   fixed_reset_value:
     - stream_wrapper.StreamWrapper:

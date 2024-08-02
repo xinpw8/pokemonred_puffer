@@ -10,6 +10,10 @@ import websockets
 import pufferlib
 from pokemonred_puffer.environment import RedGymEnv
 from pokemonred_puffer.global_map import get_map_name
+import logging
+logging.basicConfig(level=logging.INFO)
+# logging.info(f'stream_wrapper.py -> logging init at INFO level')
+
 
 
 class StreamWrapper(gym.Wrapper):
@@ -43,7 +47,7 @@ class StreamWrapper(gym.Wrapper):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self.websocket = self.loop.run_until_complete(self.establish_wc_connection())
-        self.upload_interval = 300
+        self.upload_interval = 320 # 300
         self.steam_step_counter = 0
 
         self.coord_list = []
@@ -82,7 +86,7 @@ class StreamWrapper(gym.Wrapper):
 
     def step(self, action):
         self.coord_list.append([self.x_pos, self.y_pos, self.map_n])
-
+        # logging.info(f'stream_wrapper.py -> step -> self.coord_list: {self.coord_list[-1]}')
         # Update the stream metadata with the new position and map
         self.stream_metadata["coords"] = f'({self.x_pos}, {self.y_pos}, {self.map_n})'
         self.stream_metadata["map_name"] = self.map_name
@@ -100,7 +104,6 @@ class StreamWrapper(gym.Wrapper):
                     json.dumps({"metadata": self.stream_metadata, "coords": self.coord_list})
                 )
             )
-            self.steam_step_counter_resets += 1
             self.save_coords_to_file() # write coord list to file
             self.steam_step_counter = 0
             self.coord_list = [] # keep coord list small

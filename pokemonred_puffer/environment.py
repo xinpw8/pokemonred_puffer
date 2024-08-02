@@ -5,7 +5,7 @@ import random
 from collections import deque
 from multiprocessing import Lock, shared_memory
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Tuple, Union, Dict
 import uuid
 import shutil
 import json
@@ -70,6 +70,8 @@ logging.basicConfig(
     level=logging.INFO,  # Log level
 )
 
+logging.info(f'environment.py -> logging init at INFO level')
+
 # shared events
 from multiprocessing import Manager
 
@@ -82,22 +84,26 @@ class RedGymEnv(Env):
     lock = Lock()
     shared_memory_initialized = False
 
-    def __init__(self, env_config: pufferlib.namespace):
+    def __init__(self, env_config: pufferlib.namespace, reward_config: pufferlib.namespace):
         if not RedGymEnv.shared_memory_initialized:
             RedGymEnv.env_id = shared_memory.SharedMemory(create=True, size=4)
             RedGymEnv.shared_memory_initialized = True
+        self.reward_config = reward_config
+        # logging.info(f'environment.py -> reward_config init: {reward_config}')
+        self.base_event_flags = 0 # self.get_base_event_flags()
+        # logging.info(f'environment.py -> base_event_flags init: base_event_flags: {self.base_event_flags}')
 
-        # share events across envs
-        self.synchronized_events_bool = env_config.synchronized_events_bool
-        if self.synchronized_events_bool:
-            self.shared_event_flags = RedGymEnv.shared_event_flags
-            self.lock = RedGymEnv.lock
-            with self.lock:
-                if 'leading_sum' not in self.shared_event_flags:
-                    self.shared_event_flags['leading_sum'] = 0
-                for i in range(EVENTS_FLAGS_LENGTH):
-                    if i not in self.shared_event_flags:
-                        self.shared_event_flags[i] = 0
+        # # share events across envs
+        # self.synchronized_events_bool = env_config.synchronized_events_bool
+        # if self.synchronized_events_bool:
+        #     self.shared_event_flags = RedGymEnv.shared_event_flags
+        #     self.lock = RedGymEnv.lock
+        #     with self.lock:
+        #         if 'leading_sum' not in self.shared_event_flags:
+        #             self.shared_event_flags['leading_sum'] = 0
+        #         for i in range(EVENTS_FLAGS_LENGTH):
+        #             if i not in self.shared_event_flags:
+        #                 self.shared_event_flags[i] = 0
 
         self.video_dir = Path(env_config.video_dir)
         self.session_path = Path(env_config.session_path)
@@ -112,6 +118,8 @@ class RedGymEnv(Env):
         self.init_state_name = self.init_state
     
         self.init_state_path = self.state_dir / f"{self.init_state_name}.state"
+        self.init_state_path = Path(__file__).parent / 'pyboy_states' / self.init_state_path
+        assert self.init_state_path.exists(), logging.info(f"environment.py -> state file assert failed. State file {self.init_state_path} does not exist.")
 
         self.action_freq = env_config.action_freq
         self.max_steps = env_config.max_steps
@@ -225,22 +233,21 @@ class RedGymEnv(Env):
         self.action_space = ACTION_SPACE
         self.levels = 0
         self.reset_count = 0
-        
-        # reinit
-        self.seen_coords = {}
-        self.seen_map_ids = np.zeros(256)
-        self.seen_npcs = {}
-        self.cut_coords = {}
-        self.cut_tiles = {}
-        self.seen_start_menu = 0
-        self.seen_pokemon_menu = 0
-        self.seen_stats_menu = 0
-        self.seen_bag_menu = 0
-        self.seen_action_bag_menu = 0
-        self.step_count = 0
+        self.init_mem()     
+        self.recent_screens = deque()
+        self.recent_actions = deque()
+        self.init_mem()
+        self.reset_bag_item_rewards()
         self.seen_hidden_objs = {}
+        self.seen_signs = {}
+        self.reset_count = 0
         self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
         self.cut_explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+
+        self.seen_pokemon = np.zeros(152, dtype=np.uint8)
+        self.caught_pokemon = np.zeros(152, dtype=np.uint8)
+        self.moves_obtained = np.zeros(0xA5, dtype=np.uint8)
+        self.pokecenters = np.zeros(252, dtype=np.uint8)
         
         # events
         self.previous_true_events = {}
@@ -394,6 +401,92 @@ class RedGymEnv(Env):
             symbols=os.path.join(os.path.dirname(__file__), "pokered.sym"),
         )
         
+        # more reinit (beneath pyboy)
+        self.is_warping = False
+        self.base_event_flags = sum(
+            self.read_m(i).bit_count()
+            for i in range(EVENT_FLAGS_START, EVENT_FLAGS_START + EVENTS_FLAGS_LENGTH)
+        )
+        self.events = EventFlags(self.pyboy)
+        self.missables = MissableFlags(self.pyboy)    
+        self.levels_satisfied = False
+        self.base_explore = 0
+        self.max_opponent_level = 0
+        self.max_event_rew = 0
+        self.max_level_rew = 0
+        self.max_level_sum = 0
+        self.last_health = 1
+        self.total_heal_health = 0
+        self.died_count = 0
+        self.party_size = 0
+        self.step_count = 0
+        self.blackout_check = 0
+        self.blackout_count = 0
+        self.levels = [
+            self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
+        ]
+        self.exp_bonus = 0
+
+        self.current_event_flags_set = {}
+        self.action_hist = np.zeros(len(VALID_ACTIONS))
+        self.max_map_progress = 0
+        self.progress_reward = self.get_game_state_reward()
+        self.total_reward = sum([val for _, val in self.progress_reward.items()])
+        # reinit
+        self.seen_coords = {}
+        self.seen_map_ids = np.zeros(256)
+        self.seen_npcs = {}
+        self.cut_coords = {}
+        self.cut_tiles = {}
+        self.seen_start_menu = 0
+        self.seen_pokemon_menu = 0
+        self.seen_stats_menu = 0
+        self.seen_bag_menu = 0
+        self.seen_action_bag_menu = 0
+        self.step_count = 0
+        self.seen_hidden_objs = {}
+        self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+        self.cut_explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+        self.action_hist = np.zeros(len(VALID_ACTIONS))    
+        self.base_explore = 0
+        self.max_opponent_level = 0
+        self.max_event_rew = 0
+        self.max_level_rew = 0
+        self.party_level_base = 0
+        self.party_level_post = 0
+        self.last_health = 1
+        self.last_num_poke = 1
+        self.last_num_mon_in_box = 0
+        self.total_healing_rew = 0
+        self.died_count = 0
+        self.prev_knn_rew = 0
+        self.visited_pokecenter_list = []
+        self.last_10_map_ids = np.zeros((10, 2), dtype=np.float32)
+        self.last_10_coords = np.zeros((10, 2), dtype=np.uint8)
+        self.past_events_string = ''
+        self.last_10_event_ids = np.zeros((128, 2), dtype=np.float32)
+        self.early_done = False
+        self.step_count = 0
+        self.past_rewards = np.zeros(10240, dtype=np.float32)
+        self.rewarded_events_string = '0' * 2552
+        self.seen_map_dict = {}
+        self._cut_badge = False
+        self._have_hm01 = False
+        self._can_use_cut = False
+        self._surf_badge = False
+        self._have_hm03 = False
+        self._can_use_surf = False
+        self._have_pokeflute = False
+        self._have_silph_scope = False
+        self.used_cut_coords_dict = {}
+        self._last_item_count = 0
+        self._is_box_mon_higher_level = False
+        self.secret_switch_states = {}
+        self.hideout_elevator_maps = []
+        self.use_mart_count = 0
+        self.use_pc_swap_count = 0
+        
+                
         self.register_hooks()
         if not self.headless:
             self.pyboy.set_emulation_speed(6)
@@ -418,6 +511,53 @@ class RedGymEnv(Env):
             RedGymEnv.env_id.buf[2] = (env_id >> 8) & 0xFF
             RedGymEnv.env_id.buf[3] = (env_id) & 0xFF
 
+    
+    def set_memory_value(self, address, value):
+        self.pyboy.memory[address] = value
+        
+    def get_memory_value(self, addr: int) -> int:
+        return self.pyboy.memory[addr]
+
+    def get_base_event_flags(self):
+        # event patches
+        # 1. triggered EVENT_FOUND_ROCKET_HIDEOUT 
+        # event_value = self.read_m(0xD77E)  # bit 1
+        # self.set_memory_value(0xD77E, self.set_bit(event_value, 1))
+        # 2. triggered EVENT_GOT_TM13 , fresh_water trade
+        event_value = self.read_m(0xD778)  # bit 4
+        self.set_memory_value(0xD778, self.set_bit(event_value, 4))
+        address_bits = [
+            # seafoam islands
+            [0xD7E8, 6],
+            [0xD7E8, 7],
+            [0xD87F, 0],
+            [0xD87F, 1],
+            [0xD880, 0],
+            [0xD880, 1],
+            [0xD881, 0],
+            [0xD881, 1],
+            # victory road
+            [0xD7EE, 0],
+            [0xD7EE, 7],
+            [0xD813, 0],
+            [0xD813, 6],
+            [0xD869, 7],
+        ]
+        for ab in address_bits:
+            event_value = self.read_m(ab[0])
+            self.set_memory_value(ab[0], self.set_bit(event_value, ab[1]))
+
+        n_ignored_events = 0
+        for event_id in IGNORED_EVENT_IDS:
+            if self.all_events_string[event_id] == '1':
+                n_ignored_events += 1
+        return max(
+            self.all_events_string.count('1')
+            - n_ignored_events,
+        0,
+    )
+
+    
     def register_hooks(self):
         self.pyboy.hook_register(None, "DisplayStartMenu", self.start_menu_hook, None)
         self.pyboy.hook_register(None, "RedisplayStartMenu", self.start_menu_hook, None)
@@ -712,9 +852,9 @@ class RedGymEnv(Env):
         self.total_reward = sum([val for _, val in self.progress_reward.items()])
 
        
-        # shared events
-        if self.synchronized_events_bool:
-            self.synchronize_events()
+        # # shared events
+        # if self.synchronized_events_bool:
+        #     self.synchronize_events()
         
         self.export_previous_true_events()
         
@@ -912,7 +1052,7 @@ class RedGymEnv(Env):
         bag[2 * numBagItems :] = 0
 
         return (
-            self.render()
+            self.render(reduce_res=self.reduce_res)
             | {
                 "direction": np.array(
                     self.read_m("wSpritePlayerStateData1FacingDirection") // 4, dtype=np.uint8
@@ -1047,7 +1187,8 @@ class RedGymEnv(Env):
             logging.info(f'env_id: {self.env_id} - video recording stopped. filename: tempfile_env_id_{self.env_id}.mp4')
             self.stuck_state_recording_counter = 0
             file_name = f"tempfile_env_id_{self.env_id}.mp4"
-            file_path = Path("/bet_adsorption_xinpw8/thatguy_events_obs/pokemonred_puffer/video/rollouts") / file_name
+            file_path = Path(__file__).parent / 'video' / 'rollouts' / file_name
+            # file_path = Path("/bet_adsorption_xinpw8/thatguy_events_obs/pokemonred_puffer/video/rollouts") / file_name
             keep_dir = file_path.parent / "keep"
             keep_dir.mkdir(parents=True, exist_ok=True)
             if file_path.exists():
@@ -1118,9 +1259,10 @@ class RedGymEnv(Env):
         self.previous_true_events = {tuple(map(int, key.split('_'))): value for key, value in str_true_events.items()}
        
     
-    def step(self, action):
+    def step(self, action) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
+        action = int(action)
         c, r, map_n = self.get_game_coords()
-
+        logging.info(f'environment.py -> env_id: {self.env_id} - coords: {c, r, map_n} - action: {action}')
         # # Check for the specific condition
         # if c in range(27, 31) and (r == 4 or r == 5) and map_n == 33:
         #     # Store the current true events
@@ -1238,7 +1380,8 @@ class RedGymEnv(Env):
             info["state"] = state.read()
 
         if self.step_count % self.log_frequency == 0:
-            info = info | self.agent_stats(action)
+            # logging.info(f'action: {action}')
+            info = info | self.get_agent_stats(action)
 
         self.global_step_count = self.step_count + self.reset_count * self.max_steps
 
@@ -1512,7 +1655,7 @@ class RedGymEnv(Env):
         self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = 0xFF
         self.pyboy.memory[self.pyboy.symbol_lookup("wCurEnemyLVL")[1]] = 0x01
 
-    def agent_stats(self, action):
+    def get_agent_stats(self, action):
         self.levels = [
             self.read_m(f"wPartyMon{i+1}Level") for i in range(self.read_m("wPartyCount"))
         ]

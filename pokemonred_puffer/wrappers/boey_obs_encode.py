@@ -14,6 +14,8 @@ import logging
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
+# logging.info(f'boey_obs_encode.py -> logging init at INFO level')
+
 
 class ObsWrapper(gym.Wrapper):
     def __init__(self, env: RedGymEnv, config: pufferlib.namespace):
@@ -80,13 +82,26 @@ class ObsWrapper(gym.Wrapper):
                     'event_ids': spaces.Box(low=0, high=2570, shape=(10,), dtype=np.uint32),
                     'event_step_since': spaces.Box(low=-1, high=1, shape=(10, 1), dtype=np.float32),
                 }
-        if self.env.add_boey_obs:
-            self.observation_space = spaces.Dict(self.env.observation_space, **self.boey_obs)
-        else:
-            self.observation_space = self.env.observation_space
+                
+        self.observation_space = spaces.Dict({
+            'image': spaces.Box(low=0, high=255, shape=self.output_full, dtype=np.uint8),  # 3, 72, 80
+            **self.boey_obs
+        })
 
+        if self.env.add_boey_obs:
+            self.update_observation_space()
         
 
+    def update_observation_space(self):
+        try:
+            updated_space = dict(self.env.observation_space.spaces)
+            for key, space in self.boey_obs.items():
+                # if key in updated_space:
+                #     logging.warning(f'Key {key} already exists in the observation space. Updating the existing key.')
+                updated_space[key] = space
+            self.observation_space = spaces.Dict(updated_space)
+        except Exception as e:
+            logging.error(f'boey_obs_encode.py -> __init__() -> error: {e}')
 
     def _get_obs(self):
         if self.env.add_boey_obs:
@@ -149,13 +164,27 @@ class ObsWrapper(gym.Wrapper):
         return full_obs, info
 
     def step(self, action):
-        obs, reward, done, done, info = self.env.step(action)
-        if self.env.add_boey_obs:
-            full_obs = dict(obs, **self._get_obs())
-        else:
-            full_obs = obs
-
+        action = int(action)
+        
+        try:
+            # Ensure only four values are unpacked
+            obs, reward, done, done, info = self.env.step(action)
             
+            if self.env.add_boey_obs:
+                new_obs = self._get_obs()
+                for key in new_obs:
+                    try:
+                        obs[key] = new_obs[key]
+                    except KeyError:
+                        logging.warning(f'Key {key} not found in the original observation. Using default value.')
+                full_obs = obs
+            else:
+                full_obs = obs
+
+        except Exception as e:
+            # logging.error(f'boey_obs_encode.py -> step() -> error: {e}')
+            full_obs, reward, done, done, info = {}, 0, False, {}
+
         self.init_caches()
         self.update_last_center()
         self.update_past_events()
@@ -165,7 +194,8 @@ class ObsWrapper(gym.Wrapper):
         self.recent_frames = np.roll(self.recent_frames, 1, axis=0)
         self.past_events_string = self.all_events_string
         return full_obs, reward, done, done, info
-    
+
+            
     @property
     def cur_seen_map(self):
         if self._cur_seen_map is None:
@@ -740,40 +770,40 @@ class ObsWrapper(gym.Wrapper):
     def get_pokemon_types(self, start_addr):
         return [self.fix_pokemon_type(self.read_m(start_addr + i)) + 1 for i in range(2)]
         
-    def get_all_pokemon_types_obs(self):
-        # 6 party pokemon types start from D170
-        # 6 enemy pokemon types start from D8A9
-        party_type_addr = 0xD170
-        enemy_type_addr = 0xD8A9
-        result = []
-        pokemon_count = self.read_num_poke()
-        for i in range(pokemon_count):
-            # 2 types per pokemon
-            ptypes = self.get_pokemon_types(party_type_addr + i * 44)
-            result.append(ptypes)
-        remaining_pokemon = 6 - pokemon_count
-        for i in range(remaining_pokemon):
-            result.append([0, 0])
-        if self.is_in_battle():
-            # zero padding if not in battle, reduce dimension
-            if not self.is_wild_battle():
-                pokemon_count = self.read_opp_pokemon_num()
-                for i in range(pokemon_count):
-                    # 2 types per pokemon
-                    ptypes = self.get_pokemon_types(enemy_type_addr + i * 44)
-                    result.append(ptypes)
-                remaining_pokemon = 6 - pokemon_count
-                for i in range(remaining_pokemon):
-                    result.append([0, 0])
-            else:
-                wild_ptypes = self.get_pokemon_types(0xCFEA)  # 2 ptypes only, add padding for remaining 5
-                result.append(wild_ptypes)
-                result.extend([[0, 0]] * 5)
-        else:
-            result.extend([[0, 0]] * 6)
-        result = np.array(result, dtype=np.uint8)  # shape (24,)
-        assert result.shape == (12, 2), f'invalid ptypes shape: {result.shape}'  # set PYTHONOPTIMIZE=1 to disable assert
-        return result
+    # def get_all_pokemon_types_obs(self):
+    #     # 6 party pokemon types start from D170
+    #     # 6 enemy pokemon types start from D8A9
+    #     party_type_addr = 0xD170
+    #     enemy_type_addr = 0xD8A9
+    #     result = []
+    #     pokemon_count = self.read_num_poke()
+    #     for i in range(pokemon_count):
+    #         # 2 types per pokemon
+    #         ptypes = self.get_pokemon_types(party_type_addr + i * 44)
+    #         result.append(ptypes)
+    #     remaining_pokemon = 6 - pokemon_count
+    #     for i in range(remaining_pokemon):
+    #         result.append([0, 0])
+    #     if self.is_in_battle():
+    #         # zero padding if not in battle, reduce dimension
+    #         if not self.is_wild_battle():
+    #             pokemon_count = self.read_opp_pokemon_num()
+    #             for i in range(pokemon_count):
+    #                 # 2 types per pokemon
+    #                 ptypes = self.get_pokemon_types(enemy_type_addr + i * 44)
+    #                 result.append(ptypes)
+    #             remaining_pokemon = 6 - pokemon_count
+    #             for i in range(remaining_pokemon):
+    #                 result.append([0, 0])
+    #         else:
+    #             wild_ptypes = self.get_pokemon_types(0xCFEA)  # 2 ptypes only, add padding for remaining 5
+    #             result.append(wild_ptypes)
+    #             result.extend([[0, 0]] * 5)
+    #     else:
+    #         result.extend([[0, 0]] * 6)
+    #     result = np.array(result, dtype=np.uint8)  # shape (24,)
+    #     assert result.shape == (12, 2), f'invalid ptypes shape: {result.shape}'  # set PYTHONOPTIMIZE=1 to disable assert
+    #     return result
     
     def get_pokemon_status(self, addr):
         # status
@@ -858,27 +888,27 @@ class ObsWrapper(gym.Wrapper):
     
         return result
 
-    def get_party_pokemon_obs(self):
-        # 6 party pokemons start from D16B
-        # 2d array, 6 pokemons, N features
-        result = np.zeros((6, self.n_pokemon_features), dtype=np.float32)
-        pokemon_count = self.read_num_poke()
-        for i in range(pokemon_count):
-            result[i] = self.get_one_pokemon_obs(0xD16B + i * 44, 0, i)
-        for i in range(pokemon_count, 6):
-            result[i] = np.zeros(self.n_pokemon_features, dtype=np.float32)
-        return result
+    # def get_party_pokemon_obs(self):
+    #     # 6 party pokemons start from D16B
+    #     # 2d array, 6 pokemons, N features
+    #     result = np.zeros((6, self.n_pokemon_features), dtype=np.float32)
+    #     pokemon_count = self.read_num_poke()
+    #     for i in range(pokemon_count):
+    #         result[i] = self.get_one_pokemon_obs(0xD16B + i * 44, 0, i)
+    #     for i in range(pokemon_count, 6):
+    #         result[i] = np.zeros(self.n_pokemon_features, dtype=np.float32)
+    #     return result
 
-    def get_party_pokemon_ids_obs(self):
-        pokemon_count = self.read_num_poke()[0]  # Extract the scalar value from the array
-        party_pokemon_ids = []
-        for i in range(pokemon_count):
-            # Assuming self.read_party_pokemon_id(i) returns an integer ID for the ith Pokemon in the party
-            party_pokemon_ids.append(self.read_party_pokemon_id(i))
-        return np.array(party_pokemon_ids)
+    # def get_party_pokemon_ids_obs(self):
+    #     pokemon_count = self.read_num_poke()[0]  # Extract the scalar value from the array
+    #     party_pokemon_ids = []
+    #     for i in range(pokemon_count):
+    #         # Assuming self.read_party_pokemon_id(i) returns an integer ID for the ith Pokemon in the party
+    #         party_pokemon_ids.append(self.read_party_pokemon_id(i))
+    #     return np.array(party_pokemon_ids)
 
-    def read_opp_pokemon_num(self):
-        return self.read_m(0xD89C)
+    # def read_opp_pokemon_num(self):
+    #     return self.read_m(0xD89C)
     
     def get_battle_base_pokemon_obs(self, start_addr, team):
         # CFE5
@@ -944,43 +974,43 @@ class ObsWrapper(gym.Wrapper):
     #         result =  np.zeros((6, self.n_pokemon_features), dtype=np.float32)
     #     return np.array(result, dtype=np.float32)
         
-    def get_opp_pokemon_obs(self):
-        result = []
-        try:
-            if self.is_in_battle():
-                if not self.is_wild_battle():
-                    pokemon_count = self.read_opp_pokemon_num()
-                    for i in range(pokemon_count):
-                        obs = self.get_one_pokemon_obs(0xD8A4 + i * 44, 1, i)
-                        logging.debug(f"env_id: {self.env_id} -> Adding opponent pokemon obs: {obs}, length: {len(obs)}, type: {type(obs)}")
-                        result.append(obs)
-                    remaining_pokemon = 6 - pokemon_count
-                    for i in range(remaining_pokemon):
-                        obs = [0] * self.n_pokemon_features
-                        logging.debug(f"env_id: {self.env_id} -> Adding zero padding for remaining pokemon: {obs}, length: {len(obs)}, type: {type(obs)}")
-                        result.append(obs)
-                else:
-                    obs = self.get_wild_pokemon_obs()
-                    logging.debug(f"env_id: {self.env_id} -> Adding wild pokemon obs: {obs}, length: {len(obs)}, type: {type(obs)}")
-                    result.append(obs)
-                    for i in range(5):
-                        obs = [0] * self.n_pokemon_features
-                        logging.debug(f"env_id: {self.env_id} -> Adding zero padding for remaining pokemon: {obs}, length: {len(obs)}, type: {type(obs)}")
-                        result.append(obs)
-            else:
-                result = np.zeros((6, self.n_pokemon_features), dtype=np.float32)
+    # def get_opp_pokemon_obs(self):
+    #     result = []
+    #     try:
+    #         if self.is_in_battle():
+    #             if not self.is_wild_battle():
+    #                 pokemon_count = self.read_opp_pokemon_num()
+    #                 for i in range(pokemon_count):
+    #                     obs = self.get_one_pokemon_obs(0xD8A4 + i * 44, 1, i)
+    #                     logging.debug(f"env_id: {self.env_id} -> Adding opponent pokemon obs: {obs}, length: {len(obs)}, type: {type(obs)}")
+    #                     result.append(obs)
+    #                 remaining_pokemon = 6 - pokemon_count
+    #                 for i in range(remaining_pokemon):
+    #                     obs = [0] * self.n_pokemon_features
+    #                     logging.debug(f"env_id: {self.env_id} -> Adding zero padding for remaining pokemon: {obs}, length: {len(obs)}, type: {type(obs)}")
+    #                     result.append(obs)
+    #             else:
+    #                 obs = self.get_wild_pokemon_obs()
+    #                 logging.debug(f"env_id: {self.env_id} -> Adding wild pokemon obs: {obs}, length: {len(obs)}, type: {type(obs)}")
+    #                 result.append(obs)
+    #                 for i in range(5):
+    #                     obs = [0] * self.n_pokemon_features
+    #                     logging.debug(f"env_id: {self.env_id} -> Adding zero padding for remaining pokemon: {obs}, length: {len(obs)}, type: {type(obs)}")
+    #                     result.append(obs)
+    #         else:
+    #             result = np.zeros((6, self.n_pokemon_features), dtype=np.float32)
             
-            breakpoint()
-            # Ensure all elements are of correct shape and type
-            for i, r in enumerate(result):
-                if not isinstance(r, list) or len(r) != self.n_pokemon_features:
-                    logging.warning(f"env_id: {self.env_id} -> Inhomogeneous shape or type detected at index {i}, reshaping to zeros. r={r}, type={type(r)}, length={len(r)}")
-                    result[i] = [0] * self.n_pokemon_features
+    #         breakpoint()
+    #         # Ensure all elements are of correct shape and type
+    #         for i, r in enumerate(result):
+    #             if not isinstance(r, list) or len(r) != self.n_pokemon_features:
+    #                 logging.warning(f"env_id: {self.env_id} -> Inhomogeneous shape or type detected at index {i}, reshaping to zeros. r={r}, type={type(r)}, length={len(r)}")
+    #                 result[i] = [0] * self.n_pokemon_features
             
-            return np.array(result, dtype=np.float32)
-        except Exception as e:
-            logging.error(f"env_id: {self.env_id} -> Error in get_opp_pokemon_obs: {e}")
-            return np.zeros((6, self.n_pokemon_features), dtype=np.float32)
+    #         return np.array(result, dtype=np.float32)
+    #     except Exception as e:
+    #         logging.error(f"env_id: {self.env_id} -> Error in get_opp_pokemon_obs: {e}")
+    #         return np.zeros((6, self.n_pokemon_features), dtype=np.float32)
 
     def ensure_uniform_shape(self, data, shape, dtype=np.float32):
         if isinstance(data, list):
@@ -992,21 +1022,21 @@ class ObsWrapper(gym.Wrapper):
             data = np.zeros(shape, dtype=dtype)
         return data
 
-    def get_all_pokemon_obs(self):
-        try:
-            party = self.get_party_pokemon_obs()
-            opp = self.get_opp_pokemon_obs()
+    # def get_all_pokemon_obs(self):
+    #     try:
+    #         party = self.get_party_pokemon_obs()
+    #         opp = self.get_opp_pokemon_obs()
 
-            logging.debug(f'party shape: {party.shape}, opp shape: {opp.shape}')
+    #         logging.debug(f'party shape: {party.shape}, opp shape: {opp.shape}')
 
-            if party.ndim != 2 or opp.ndim != 2:
-                raise ValueError(f'Expected 2D arrays but got party.ndim={party.ndim}, opp.ndim={opp.ndim}')
+    #         if party.ndim != 2 or opp.ndim != 2:
+    #             raise ValueError(f'Expected 2D arrays but got party.ndim={party.ndim}, opp.ndim={opp.ndim}')
 
-            result = np.concatenate([party, opp], axis=0)
-            return result  # shape (12, 22)
-        except Exception as e:
-            logging.error(f'Error in get_all_pokemon_obs: {e}')
-            return np.zeros((12, self.n_pokemon_features), dtype=np.float32)
+    #         result = np.concatenate([party, opp], axis=0)
+    #         return result  # shape (12, 22)
+    #     except Exception as e:
+    #         logging.error(f'Error in get_all_pokemon_obs: {e}')
+    #         return np.zeros((12, self.n_pokemon_features), dtype=np.float32)
         
     # def get_all_pokemon_obs(self):
     #     # 6 party pokemons start from D16B
@@ -1018,148 +1048,148 @@ class ObsWrapper(gym.Wrapper):
     #     result = np.concatenate([party, opp], axis=0)
     #     return result  # shape (12, 22)
     
-    def get_party_pokemon_ids_obs(self):
-        # 6 party pokemons start from D16B
-        # 1d array, 6 pokemons, 1 id
-        result = []
-        pokemon_count = self.read_num_poke()
-        for i in range(pokemon_count):
-            result.append(self.read_m(0xD16B + i * 44) + 1)
-        remaining_pokemon = 6 - pokemon_count
-        for i in range(remaining_pokemon):
-            result.append(0)
-        result = np.array(result, dtype=np.uint8)
-        return result
+    # def get_party_pokemon_ids_obs(self):
+    #     # 6 party pokemons start from D16B
+    #     # 1d array, 6 pokemons, 1 id
+    #     result = []
+    #     pokemon_count = self.read_num_poke()
+    #     for i in range(pokemon_count):
+    #         result.append(self.read_m(0xD16B + i * 44) + 1)
+    #     remaining_pokemon = 6 - pokemon_count
+    #     for i in range(remaining_pokemon):
+    #         result.append(0)
+    #     result = np.array(result, dtype=np.uint8)
+    #     return result
     
-    def get_opp_pokemon_ids_obs(self):
-        # 6 enemy pokemons start from D8A4
-        # 1d array, 6 pokemons, 1 id
-        result = []
-        if self.is_in_battle():
-            if not self.is_wild_battle():
-                pokemon_count = self.read_opp_pokemon_num()
-                for i in range(pokemon_count):
-                    result.append(self.read_m(0xD8A4 + i * 44) + 1)
-                remaining_pokemon = 6 - pokemon_count
-                for i in range(remaining_pokemon):
-                    result.append(0)
-            else:
-                # wild battle, take the battle pokemon
-                result.append(self.read_m(0xCFE5) + 1)
-                for i in range(5):
-                    result.append(0)
-        else:
-            return np.zeros(6, dtype=np.uint8)
-        result = np.array(result, dtype=np.uint8)
-        return result
+    # def get_opp_pokemon_ids_obs(self):
+    #     # 6 enemy pokemons start from D8A4
+    #     # 1d array, 6 pokemons, 1 id
+    #     result = []
+    #     if self.is_in_battle():
+    #         if not self.is_wild_battle():
+    #             pokemon_count = self.read_opp_pokemon_num()
+    #             for i in range(pokemon_count):
+    #                 result.append(self.read_m(0xD8A4 + i * 44) + 1)
+    #             remaining_pokemon = 6 - pokemon_count
+    #             for i in range(remaining_pokemon):
+    #                 result.append(0)
+    #         else:
+    #             # wild battle, take the battle pokemon
+    #             result.append(self.read_m(0xCFE5) + 1)
+    #             for i in range(5):
+    #                 result.append(0)
+    #     else:
+    #         return np.zeros(6, dtype=np.uint8)
+    #     result = np.array(result, dtype=np.uint8)
+    #     return result
     
-    def get_all_pokemon_ids_obs(self):
-        # 6 party pokemons start from D16B
-        # 6 enemy pokemons start from D8A4
-        # gap between each pokemon is 44
-        party = self.get_party_pokemon_ids_obs()
-        opp = self.get_opp_pokemon_ids_obs()
-        result = np.concatenate((party, opp), axis=0)
-        return self.ensure_uniform_shape(result, (12,), dtype=np.uint8)
+    # def get_all_pokemon_ids_obs(self):
+    #     # 6 party pokemons start from D16B
+    #     # 6 enemy pokemons start from D8A4
+    #     # gap between each pokemon is 44
+    #     party = self.get_party_pokemon_ids_obs()
+    #     opp = self.get_opp_pokemon_ids_obs()
+    #     result = np.concatenate((party, opp), axis=0)
+    #     return self.ensure_uniform_shape(result, (12,), dtype=np.uint8)
     
-    def get_one_pokemon_move_ids_obs(self, start_addr):
-        # 4 moves
-        return [self.read_m(start_addr + i) for i in range(4)]
+    # def get_one_pokemon_move_ids_obs(self, start_addr):
+    #     # 4 moves
+    #     return [self.read_m(start_addr + i) for i in range(4)]
     
-    def get_party_pokemon_move_ids_obs(self):
-        # 6 party pokemons start from D173
-        # 2d array, 6 pokemons, 4 moves
-        result = []
-        pokemon_count = self.read_num_poke()
-        for i in range(pokemon_count):
-            result.append(self.get_one_pokemon_move_ids_obs(0xD173 + (i * 44)))
-        remaining_pokemon = 6 - pokemon_count
-        for i in range(remaining_pokemon):
-            result.append([0] * 4)
-        result = np.array(result, dtype=np.uint8)
-        return self.ensure_uniform_shape(result, (6, 4), dtype=np.uint8)
+    # def get_party_pokemon_move_ids_obs(self):
+    #     # 6 party pokemons start from D173
+    #     # 2d array, 6 pokemons, 4 moves
+    #     result = []
+    #     pokemon_count = self.read_num_poke()
+    #     for i in range(pokemon_count):
+    #         result.append(self.get_one_pokemon_move_ids_obs(0xD173 + (i * 44)))
+    #     remaining_pokemon = 6 - pokemon_count
+    #     for i in range(remaining_pokemon):
+    #         result.append([0] * 4)
+    #     result = np.array(result, dtype=np.uint8)
+    #     return self.ensure_uniform_shape(result, (6, 4), dtype=np.uint8)
 
-    def get_opp_pokemon_move_ids_obs(self):
-        # 6 enemy pokemons start from D8AC
-        # 2d array, 6 pokemons, 4 moves
-        result = []
-        if self.is_in_battle():
-            if not self.is_wild_battle():
-                pokemon_count = self.read_opp_pokemon_num()
-                for i in range(pokemon_count):
-                    result.append(self.get_one_pokemon_move_ids_obs(0xD8AC + (i * 44)))
-                remaining_pokemon = 6 - pokemon_count
-                for i in range(remaining_pokemon):
-                    result.append([0] * 4)
-            else:
-                # wild battle, take the battle pokemon
-                result.append(self.get_one_pokemon_move_ids_obs(0xCFED))
-                for i in range(5):
-                    result.append([0] * 4)
-        else:
-            return np.zeros((6, 4), dtype=np.uint8)
-        result = np.array(result, dtype=np.uint8)
-        return result
+    # def get_opp_pokemon_move_ids_obs(self):
+    #     # 6 enemy pokemons start from D8AC
+    #     # 2d array, 6 pokemons, 4 moves
+    #     result = []
+    #     if self.is_in_battle():
+    #         if not self.is_wild_battle():
+    #             pokemon_count = self.read_opp_pokemon_num()
+    #             for i in range(pokemon_count):
+    #                 result.append(self.get_one_pokemon_move_ids_obs(0xD8AC + (i * 44)))
+    #             remaining_pokemon = 6 - pokemon_count
+    #             for i in range(remaining_pokemon):
+    #                 result.append([0] * 4)
+    #         else:
+    #             # wild battle, take the battle pokemon
+    #             result.append(self.get_one_pokemon_move_ids_obs(0xCFED))
+    #             for i in range(5):
+    #                 result.append([0] * 4)
+    #     else:
+    #         return np.zeros((6, 4), dtype=np.uint8)
+    #     result = np.array(result, dtype=np.uint8)
+    #     return result
     
-    def get_all_move_ids_obs(self):
-        # 6 party pokemons start from D173
-        # 6 enemy pokemons start from D8AC
-        # gap between each pokemon is 44
-        party = self.get_party_pokemon_move_ids_obs()
-        opp = self.get_opp_pokemon_move_ids_obs()
-        result = np.concatenate((party, opp), axis=0)
-        return result  # shape (12, 4)
+    # def get_all_move_ids_obs(self):
+    #     # 6 party pokemons start from D173
+    #     # 6 enemy pokemons start from D8AC
+    #     # gap between each pokemon is 44
+    #     party = self.get_party_pokemon_move_ids_obs()
+    #     opp = self.get_opp_pokemon_move_ids_obs()
+    #     result = np.concatenate((party, opp), axis=0)
+    #     return result  # shape (12, 4)
     
-    def get_one_pokemon_move_pps_obs(self, start_addr):
-        # 4 moves
-        result = np.zeros((4, 2), dtype=np.float32)
-        for i in range(4):
-            pp = self.scaled_encoding(self.read_m(start_addr + i), 30)
-            have_pp = 1 if pp > 0 else 0
-            result[i] = [pp, have_pp]
-        return result
+    # def get_one_pokemon_move_pps_obs(self, start_addr):
+    #     # 4 moves
+    #     result = np.zeros((4, 2), dtype=np.float32)
+    #     for i in range(4):
+    #         pp = self.scaled_encoding(self.read_m(start_addr + i), 30)
+    #         have_pp = 1 if pp > 0 else 0
+    #         result[i] = [pp, have_pp]
+    #     return result
     
-    def get_party_pokemon_move_pps_obs(self):
-        # 6 party pokemons start from D188
-        # 2d array, 6 pokemons, 8 features
-        # features: pp, have pp
-        result = np.zeros((6, 4, 2), dtype=np.float32)
-        pokemon_count = self.read_num_poke()
-        for i in range(pokemon_count):
-            result[i] = self.get_one_pokemon_move_pps_obs(0xD188 + (i * 44))
-        for i in range(pokemon_count, 6):
-            result[i] = np.zeros((4, 2), dtype=np.float32)
-        return result
+    # def get_party_pokemon_move_pps_obs(self):
+    #     # 6 party pokemons start from D188
+    #     # 2d array, 6 pokemons, 8 features
+    #     # features: pp, have pp
+    #     result = np.zeros((6, 4, 2), dtype=np.float32)
+    #     pokemon_count = self.read_num_poke()
+    #     for i in range(pokemon_count):
+    #         result[i] = self.get_one_pokemon_move_pps_obs(0xD188 + (i * 44))
+    #     for i in range(pokemon_count, 6):
+    #         result[i] = np.zeros((4, 2), dtype=np.float32)
+    #     return result
     
-    def get_opp_pokemon_move_pps_obs(self):
-        # 6 enemy pokemons start from D8C1
-        # 2d array, 6 pokemons, 8 features
-        # features: pp, have pp
-        result = np.zeros((6, 4, 2), dtype=np.float32)
-        if self.is_in_battle():
-            if not self.is_wild_battle():
-                pokemon_count = self.read_opp_pokemon_num()
-                for i in range(pokemon_count):
-                    result[i] = self.get_one_pokemon_move_pps_obs(0xD8C1 + (i * 44))
-                for i in range(pokemon_count, 6):
-                    result[i] = np.zeros((4, 2), dtype=np.float32)
-        #     else:
-        #         # wild battle, take the battle pokemon
-        #         for i in range(pokemon_count):
-        #             result[i] = (self.get_one_pokemon_move_pps_obs(0xCFFE))
-        #         for i in range(5):
-        #             result[i] = (np.zeros((4, 2), dtype=np.float32))
-        # else:
-            return np.zeros((6, 4, 2), dtype=np.float32)
-        return result
+    # def get_opp_pokemon_move_pps_obs(self):
+    #     # 6 enemy pokemons start from D8C1
+    #     # 2d array, 6 pokemons, 8 features
+    #     # features: pp, have pp
+    #     result = np.zeros((6, 4, 2), dtype=np.float32)
+    #     if self.is_in_battle():
+    #         if not self.is_wild_battle():
+    #             pokemon_count = self.read_opp_pokemon_num()
+    #             for i in range(pokemon_count):
+    #                 result[i] = self.get_one_pokemon_move_pps_obs(0xD8C1 + (i * 44))
+    #             for i in range(pokemon_count, 6):
+    #                 result[i] = np.zeros((4, 2), dtype=np.float32)
+    #     #     else:
+    #     #         # wild battle, take the battle pokemon
+    #     #         for i in range(pokemon_count):
+    #     #             result[i] = (self.get_one_pokemon_move_pps_obs(0xCFFE))
+    #     #         for i in range(5):
+    #     #             result[i] = (np.zeros((4, 2), dtype=np.float32))
+    #     # else:
+    #         return np.zeros((6, 4, 2), dtype=np.float32)
+    #     return result
     
-    def get_all_move_pps_obs(self):
-        # 6 party pokemons start from D188
-        # 6 enemy pokemons start from D8C1
-        party = self.get_party_pokemon_move_pps_obs()
-        opp = self.get_opp_pokemon_move_pps_obs()
-        result = np.concatenate((party, opp), axis=0)
-        return result
+    # def get_all_move_pps_obs(self):
+    #     # 6 party pokemons start from D188
+    #     # 6 enemy pokemons start from D8C1
+    #     party = self.get_party_pokemon_move_pps_obs()
+    #     opp = self.get_opp_pokemon_move_pps_obs()
+    #     result = np.concatenate((party, opp), axis=0)
+    #     return result
     
     def get_all_item_ids_obs(self):
         # max 85

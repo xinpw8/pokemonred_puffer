@@ -11,15 +11,22 @@ from pokemonred_puffer.environment import (
 
 
 from .. import ram_map, ram_map_leanke
+import logging
+logging.basicConfig(level=logging.INFO)
+# logging.info(f'baseline.py -> logging init at INFO level')
 
 MUSEUM_TICKET = (0xD754, 0)
 
 
 class BaselineRewardEnv(RedGymEnv):
     def __init__(self, env_config: pufferlib.namespace, reward_config: pufferlib.namespace):
-        super().__init__(env_config)
+        super().__init__(env_config, reward_config)
         self.reward_config = reward_config
+        # logging.info(f'baseline.py -> self.reward_config init: self.reward_config: {self.reward_config}')
         self.step_count = self.unwrapped.step_count
+        self.base_event_flags = 0 # self.get_base_event_flags()
+        # logging.info(f'baseline.py -> base_event_flags init: base_event_flags: {self.base_event_flags}')
+
 
     # TODO: make the reward weights configurable
     def get_game_state_reward(self):
@@ -111,6 +118,9 @@ class BaselineRewardEnv(RedGymEnv):
 
 
 class TeachCutReplicationEnv(BaselineRewardEnv):
+    def __init__(self, env_config: pufferlib.namespace, reward_config: pufferlib.namespace):
+        super().__init__(env_config, reward_config)
+        
     def get_game_state_reward(self):
         return {
             "event": self.reward_config["event"] * self.update_max_event_rew(),
@@ -141,6 +151,9 @@ class TeachCutReplicationEnv(BaselineRewardEnv):
 
 
 class TeachCutReplicationEnvFork(BaselineRewardEnv):
+    def __init__(self, env_config: pufferlib.namespace, reward_config: pufferlib.namespace):
+        super().__init__(env_config, reward_config)
+        
     def get_game_state_reward(self):
         return {
             "event": self.reward_config["event"] * self.update_max_event_rew(),
@@ -193,6 +206,9 @@ class TeachCutReplicationEnvFork(BaselineRewardEnv):
 
 
 class CutWithObjectRewardsEnv(BaselineRewardEnv):
+    def __init__(self, env_config: pufferlib.namespace, reward_config: pufferlib.namespace):
+        super().__init__(env_config, reward_config)
+        
     def get_game_state_reward(self):
         _, wBagItems = self.pyboy.symbol_lookup("wBagItems")
         bag = np.array(self.pyboy.memory[wBagItems : wBagItems + 40], dtype=np.uint8)
@@ -200,114 +216,118 @@ class CutWithObjectRewardsEnv(BaselineRewardEnv):
         # item ids start at 1 so using 0 as the nothing value is okay
         bag[2 * numBagItems :] = 0
         bag_item_ids = bag[::2]
-        rewards = {
-                "event": self.reward_config.get("event", 1.0) * self.update_max_event_rew(),
-                "met_bill": self.reward_config.get("bill_saved", 5.0)
-                * int(self.read_bit(0xD7F1, 0)),
-                "used_cell_separator_on_bill": self.reward_config.get("bill_saved", 5.0)
-                * int(self.read_bit(0xD7F2, 3)),
-                "ss_ticket": self.reward_config.get("bill_saved", 5.0)
-                * int(self.read_bit(0xD7F2, 4)),
-                "met_bill_2": self.reward_config.get("bill_saved", 5.0)
-                * int(self.read_bit(0xD7F2, 5)),
-                "bill_said_use_cell_separator": self.reward_config.get("bill_saved", 5.0)
-                * int(self.read_bit(0xD7F2, 6)),
-                "left_bills_house_after_helping": self.reward_config.get("bill_saved", 5.0)
-                * int(self.read_bit(0xD7F2, 7)),
-                "seen_pokemon": self.reward_config.get("seen_pokemon", 4.0)
-                * sum(self.seen_pokemon),
-                "caught_pokemon": self.reward_config.get("caught_pokemon", 4.0)
-                * sum(self.caught_pokemon),
-                "moves_obtained": self.reward_config.get("moves_obtained", 4.0)
-                * sum(self.moves_obtained),
-                "hm_count": self.reward_config.get("hm_count", 10.0) * self.get_hm_count(),
-                "level": self.reward_config.get("level", 1.0) * self.get_levels_reward(),
-                "badges": self.reward_config.get("badges", 15.0) * self.get_badges(),
-                "exploration": self.reward_config.get("exploration", 0.03)
-                * sum(self.seen_coords.values()),
-                "cut_coords": self.reward_config.get("cut_coords", 0.0)
-                * sum(self.cut_coords.values()),
-                "cut_tiles": self.reward_config.get("cut_tiles", 0.0)
-                * sum(self.cut_tiles.values()),
-                "start_menu": self.reward_config.get("start_menu", 0.00) * self.seen_start_menu,
-                "pokemon_menu": self.reward_config.get("pokemon_menu", 0.0)
-                * self.seen_pokemon_menu,
-                "stats_menu": self.reward_config.get("stats_menu", 0.0) * self.seen_stats_menu,
-                "bag_menu": self.reward_config.get("bag_menu", 0.0) * self.seen_bag_menu,
-                "rival3": self.reward_config.get("event", 1.0) * int(self.read_m(0xD665) == 4),
-                "rocket_hideout_found": self.reward_config.get("rocket_hideout_found", 10.0)
-                * int(self.read_bit(0xD77E, 1)),
-                "gym_3_events": self.reward_config.get("gym_3_events", 5.0)
-                * sum(ram_map_leanke.monitor_gym3_events(self.pyboy).values()),
-                "gym_4_events": self.reward_config.get("gym_4_events", 5.0)
-                * sum(ram_map_leanke.monitor_gym4_events(self.pyboy).values()),
-                "gym_5_events": self.reward_config.get("gym_5_events", 5.0)
-                * sum(ram_map_leanke.monitor_gym5_events(self.pyboy).values()),
-                "gym_6_events": self.reward_config.get("gym_6_events", 5.0)
-                * sum(ram_map_leanke.monitor_gym6_events(self.pyboy).values()),
-                "gym_7_events": self.reward_config.get("gym_7_events", 5.0)
-                * sum(ram_map_leanke.monitor_gym7_events(self.pyboy).values()),
-                "gym_8_events": self.reward_config.get("gym_8_events", 5.0)
-                * sum(ram_map_leanke.monitor_gym8_events(self.pyboy).values()),
-                "rock_tunnel_events": self.reward_config.get("rock_tunnel_events", 5.0)
-                * sum(ram_map_leanke.rock_tunnel_events(self.pyboy).values()),
-                "exp_bonus_multiplier": self.reward_config.get("exp_bonus_multiplier", 1.0)
-                * self.get_exp_bonus(),
-                "rubbed_captains_back": self.reward_config.get("rubbed_captains_back", 1.0)
-                * int(self.read_bit(0xD803, 1)),
-                "dojo_events": self.reward_config.get("dojo_events", 5.0)
-                * sum(ram_map_leanke.monitor_dojo_events(self.pyboy).values()),
-                "beat_rocket_hideout_giovanni": self.reward_config.get(
-                    "beat_rocket_hideout_giovanni", 10.0
-                )
-                * int(
-                    ram_map_leanke.monitor_hideout_events(self.pyboy)["beat_rocket_hideout_giovanni"]
-                ),
-                "rocket_hideout_events": self.reward_config.get("rocket_hideout_events", 5.0)
-                * sum(ram_map_leanke.monitor_hideout_events(self.pyboy).values()) if not self.skip_rocket_hideout_bool else 0,
-                "pokemon_tower_events": self.reward_config.get("pokemon_tower_events", 5.0)
-                * sum(ram_map_leanke.monitor_poke_tower_events(self.pyboy).values()),
-                "rescued_mr_fuji_1": self.reward_config.get("rescued_mr_fuji_1", 10.0)
-                * int(self.read_bit(0xD7E0, 7)),
-                "silph_co_events": self.reward_config.get("silph_co_events", 5.0)
-                * sum(ram_map_leanke.monitor_silph_co_events(self.pyboy).values()) if not self.skip_silph_co_bool else 0,
-                "beat_silph_co_giovanni": self.reward_config.get("beat_silph_co_giovanni", 10.0)
-                * int(ram_map_leanke.monitor_silph_co_events(self.pyboy)["beat_silph_co_giovanni"]),
-                "got_poke_flute": self.reward_config.get("got_poke_flute", 10.0)
-                * int(self.read_bit(0xD76C, 0)),
-                "has_lemonade_in_bag": self.reward_config.get("has_lemonade_in_bag", 20.0)
-                * int(getattr(self, "has_lemonade_in_bag", False)),
-                "has_fresh_water_in_bag": self.reward_config.get("has_fresh_water_in_bag", 20.0)
-                * int(getattr(self, "has_fresh_water_in_bag", False)),
-                "has_soda_pop_in_bag": self.reward_config.get("has_soda_pop_in_bag", 20.0)
-                * int(getattr(self, "has_soda_pop_in_bag", False)),
-                "has_silph_scope_in_bag": self.reward_config.get("has_silph_scope_in_bag", 20.0)
-                * int(getattr(self, "has_silph_scope_in_bag", False)) if not self.skip_rocket_hideout_bool else 0,
-                "has_lift_key_in_bag": self.reward_config.get("has_lift_key_in_bag", 20.0)
-                * int(getattr(self, "has_lift_key_in_bag", False)) if not self.skip_rocket_hideout_bool else 0,
-                "has_pokedoll_in_bag": self.reward_config.get("has_pokedoll_in_bag", 20.0)
-                * int(getattr(self, "has_pokedoll_in_bag", False)),
-                "has_bicycle_in_bag": self.reward_config.get("has_bicycle_in_bag", 20.0)
-                * int(getattr(self, "has_bicycle_in_bag", False)),
-                # "lab_events": self.reward_config.get("lab_events", 1.0) * sum(ram_map_leanke.monitor_lab_events(self.pyboy).values()),
-                "mansion_events": self.reward_config.get("mansion_events", 1.0) * sum(ram_map_leanke.monitor_mansion_events(self.pyboy).values()),
-                "safari_events": self.reward_config.get("safari_events", 1.0) * sum(ram_map_leanke.monitor_safari_events(self.pyboy).values()) if not self.skip_safari_zone_bool else 0,
-                "snorlax_events": self.reward_config.get("snorlax_events", 1.0) * sum(ram_map_leanke.monitor_snorlax_events(self.pyboy).values()),
-                "dojo_events": self.reward_config.get("dojo_events", 1.0) * sum(ram_map_leanke.monitor_dojo_events(self.pyboy).values()),
-                "rival3": self.reward_config["event"] * int(self.read_m("wSSAnne2FCurScript") == 4),
-                # "game_corner_rocket": self.reward_config["event"]
-                # * float(self.missables.get_missable("HS_GAME_CORNER_ROCKET")),
-            } | {
-                event: self.reward_config["required_event"] * float(self.events.get_event(event))
-                for event in REQUIRED_EVENTS
-            } | {
-                item.name: self.reward_config["required_item"] * float(item.value in bag_item_ids)
-                for item in REQUIRED_ITEMS
-            } | {
-                item.name: self.reward_config["useful_item"] * float(item.value in bag_item_ids)
-                for item in USEFUL_ITEMS
-            }
-            
+        try:
+            rewards = {
+                    "event": self.reward_config.get("event", 1.0) * self.update_max_event_rew(),
+                    "met_bill": self.reward_config.get("bill_saved", 5.0)
+                    * int(self.read_bit(0xD7F1, 0)),
+                    "used_cell_separator_on_bill": self.reward_config.get("bill_saved", 5.0)
+                    * int(self.read_bit(0xD7F2, 3)),
+                    "ss_ticket": self.reward_config.get("bill_saved", 5.0)
+                    * int(self.read_bit(0xD7F2, 4)),
+                    "met_bill_2": self.reward_config.get("bill_saved", 5.0)
+                    * int(self.read_bit(0xD7F2, 5)),
+                    "bill_said_use_cell_separator": self.reward_config.get("bill_saved", 5.0)
+                    * int(self.read_bit(0xD7F2, 6)),
+                    "left_bills_house_after_helping": self.reward_config.get("bill_saved", 5.0)
+                    * int(self.read_bit(0xD7F2, 7)),
+                    "seen_pokemon": self.reward_config.get("seen_pokemon", 4.0)
+                    * sum(self.seen_pokemon),
+                    "caught_pokemon": self.reward_config.get("caught_pokemon", 4.0)
+                    * sum(self.caught_pokemon),
+                    "moves_obtained": self.reward_config.get("moves_obtained", 4.0)
+                    * sum(self.moves_obtained),
+                    "hm_count": self.reward_config.get("hm_count", 10.0) * self.get_hm_count(),
+                    "level": self.reward_config.get("level", 1.0) * self.get_levels_reward(),
+                    "badges": self.reward_config.get("badges", 15.0) * self.get_badges(),
+                    "exploration": self.reward_config.get("exploration", 0.03)
+                    * sum(self.seen_coords.values()),
+                    "cut_coords": self.reward_config.get("cut_coords", 0.0)
+                    * sum(self.cut_coords.values()),
+                    "cut_tiles": self.reward_config.get("cut_tiles", 0.0)
+                    * sum(self.cut_tiles.values()),
+                    "start_menu": self.reward_config.get("start_menu", 0.00) * self.seen_start_menu,
+                    "pokemon_menu": self.reward_config.get("pokemon_menu", 0.0)
+                    * self.seen_pokemon_menu,
+                    "stats_menu": self.reward_config.get("stats_menu", 0.0) * self.seen_stats_menu,
+                    "bag_menu": self.reward_config.get("bag_menu", 0.0) * self.seen_bag_menu,
+                    "rival3": self.reward_config.get("event", 1.0) * int(self.read_m(0xD665) == 4),
+                    "rocket_hideout_found": self.reward_config.get("rocket_hideout_found", 10.0)
+                    * int(self.read_bit(0xD77E, 1)),
+                    "gym_3_events": self.reward_config.get("gym_3_events", 5.0)
+                    * sum(ram_map_leanke.monitor_gym3_events(self.pyboy).values()),
+                    "gym_4_events": self.reward_config.get("gym_4_events", 5.0)
+                    * sum(ram_map_leanke.monitor_gym4_events(self.pyboy).values()),
+                    "gym_5_events": self.reward_config.get("gym_5_events", 5.0)
+                    * sum(ram_map_leanke.monitor_gym5_events(self.pyboy).values()),
+                    "gym_6_events": self.reward_config.get("gym_6_events", 5.0)
+                    * sum(ram_map_leanke.monitor_gym6_events(self.pyboy).values()),
+                    "gym_7_events": self.reward_config.get("gym_7_events", 5.0)
+                    * sum(ram_map_leanke.monitor_gym7_events(self.pyboy).values()),
+                    "gym_8_events": self.reward_config.get("gym_8_events", 5.0)
+                    * sum(ram_map_leanke.monitor_gym8_events(self.pyboy).values()),
+                    "rock_tunnel_events": self.reward_config.get("rock_tunnel_events", 5.0)
+                    * sum(ram_map_leanke.rock_tunnel_events(self.pyboy).values()),
+                    "exp_bonus_multiplier": self.reward_config.get("exp_bonus_multiplier", 1.0)
+                    * self.get_exp_bonus(),
+                    "rubbed_captains_back": self.reward_config.get("rubbed_captains_back", 1.0)
+                    * int(self.read_bit(0xD803, 1)),
+                    "dojo_events": self.reward_config.get("dojo_events", 5.0)
+                    * sum(ram_map_leanke.monitor_dojo_events(self.pyboy).values()),
+                    "beat_rocket_hideout_giovanni": self.reward_config.get(
+                        "beat_rocket_hideout_giovanni", 10.0
+                    )
+                    * int(
+                        ram_map_leanke.monitor_hideout_events(self.pyboy)["beat_rocket_hideout_giovanni"]
+                    ),
+                    "rocket_hideout_events": self.reward_config.get("rocket_hideout_events", 5.0)
+                    * sum(ram_map_leanke.monitor_hideout_events(self.pyboy).values()) if not self.skip_rocket_hideout_bool else 0,
+                    "pokemon_tower_events": self.reward_config.get("pokemon_tower_events", 5.0)
+                    * sum(ram_map_leanke.monitor_poke_tower_events(self.pyboy).values()),
+                    "rescued_mr_fuji_1": self.reward_config.get("rescued_mr_fuji_1", 10.0)
+                    * int(self.read_bit(0xD7E0, 7)),
+                    "silph_co_events": self.reward_config.get("silph_co_events", 5.0)
+                    * sum(ram_map_leanke.monitor_silph_co_events(self.pyboy).values()) if not self.skip_silph_co_bool else 0,
+                    "beat_silph_co_giovanni": self.reward_config.get("beat_silph_co_giovanni", 10.0)
+                    * int(ram_map_leanke.monitor_silph_co_events(self.pyboy)["beat_silph_co_giovanni"]),
+                    "got_poke_flute": self.reward_config.get("got_poke_flute", 10.0)
+                    * int(self.read_bit(0xD76C, 0)),
+                    "has_lemonade_in_bag": self.reward_config.get("has_lemonade_in_bag", 20.0)
+                    * int(getattr(self, "has_lemonade_in_bag", False)),
+                    "has_fresh_water_in_bag": self.reward_config.get("has_fresh_water_in_bag", 20.0)
+                    * int(getattr(self, "has_fresh_water_in_bag", False)),
+                    "has_soda_pop_in_bag": self.reward_config.get("has_soda_pop_in_bag", 20.0)
+                    * int(getattr(self, "has_soda_pop_in_bag", False)),
+                    "has_silph_scope_in_bag": self.reward_config.get("has_silph_scope_in_bag", 20.0)
+                    * int(getattr(self, "has_silph_scope_in_bag", False)) if not self.skip_rocket_hideout_bool else 0,
+                    "has_lift_key_in_bag": self.reward_config.get("has_lift_key_in_bag", 20.0)
+                    * int(getattr(self, "has_lift_key_in_bag", False)) if not self.skip_rocket_hideout_bool else 0,
+                    "has_pokedoll_in_bag": self.reward_config.get("has_pokedoll_in_bag", 20.0)
+                    * int(getattr(self, "has_pokedoll_in_bag", False)),
+                    "has_bicycle_in_bag": self.reward_config.get("has_bicycle_in_bag", 20.0)
+                    * int(getattr(self, "has_bicycle_in_bag", False)),
+                    # "lab_events": self.reward_config.get("lab_events", 1.0) * sum(ram_map_leanke.monitor_lab_events(self.pyboy).values()),
+                    "mansion_events": self.reward_config.get("mansion_events", 1.0) * sum(ram_map_leanke.monitor_mansion_events(self.pyboy).values()),
+                    "safari_events": self.reward_config.get("safari_events", 1.0) * sum(ram_map_leanke.monitor_safari_events(self.pyboy).values()) if not self.skip_safari_zone_bool else 0,
+                    "snorlax_events": self.reward_config.get("snorlax_events", 1.0) * sum(ram_map_leanke.monitor_snorlax_events(self.pyboy).values()),
+                    "dojo_events": self.reward_config.get("dojo_events", 1.0) * sum(ram_map_leanke.monitor_dojo_events(self.pyboy).values()),
+                    "rival3": self.reward_config["event"] * int(self.read_m("wSSAnne2FCurScript") == 4),
+                    # "game_corner_rocket": self.reward_config["event"]
+                    # * float(self.missables.get_missable("HS_GAME_CORNER_ROCKET")),
+                } | {
+                    event: self.reward_config["required_event"] * float(self.events.get_event(event))
+                    for event in REQUIRED_EVENTS
+                } | {
+                    item.name: self.reward_config["required_item"] * float(item.value in bag_item_ids)
+                    for item in REQUIRED_ITEMS
+                } | {
+                    item.name: self.reward_config["useful_item"] * float(item.value in bag_item_ids)
+                    for item in USEFUL_ITEMS
+                }
+        except Exception as e:
+            print(f'Error in get_game_state_reward: {e}')
+            rewards = BaselineRewardEnv.get_game_state_reward(self)
+                
         return rewards
 
     def get_levels_reward(self):
