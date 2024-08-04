@@ -139,7 +139,7 @@ class RedGymEnv(Env):
 
         self.env_config = env_config
         self.video_dir = Path(env_config.video_dir)
-        # self.session_path = Path(env_config.session_path)
+        self.session_path = Path(env_config.session_path)
         # self.video_path = self.video_dir / self.session_path
         self.save_video = env_config.save_video
         self.save_final_state = env_config.save_final_state
@@ -196,6 +196,11 @@ class RedGymEnv(Env):
         self.heal_health_and_pp = env_config.heal_health_and_pp
         self.catch_stuck_state = env_config.catch_stuck_state
         self.complete_all_previous_badge_bool = env_config.complete_all_previous_badge_bool
+        self.add_boey_obs = env_config.add_boey_obs
+        self.boey_enable_stage_manager = env_config.boey_enable_stage_manager if env_config.boey_enable_stage_manager is not None else False
+        if self.boey_enable_stage_manager:
+            self.boey_stage_manager = StageManager()
+        
                 
         self.previous_coords = None
         self.stuck_steps = 0
@@ -205,6 +210,7 @@ class RedGymEnv(Env):
         self.action_space = ACTION_SPACE
         self.levels = 0
         self.reset_count = 0
+        self.step_count = 0
         
         # Init pyboy early
         self.pyboy = PyBoy(
@@ -374,7 +380,7 @@ class RedGymEnv(Env):
         self.essential_map_locations = ESSENTIAL_MAP_LOCATIONS
 
         obs_space = {
-            # "screen": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
+            "screen": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
             "visited_mask": spaces.Box(low=0, high=255, shape=self.screen_output_shape, dtype=np.uint8),
         #     "direction": spaces.Box(low=0, high=4, shape=(1,), dtype=np.uint8),
         #     "cut_in_party": spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
@@ -398,11 +404,11 @@ class RedGymEnv(Env):
             'boey_map_step_since': spaces.Box(low=-1, high=1, shape=(10, 1), dtype=np.float32),
             'boey_item_ids': spaces.Box(low=0, high=255, shape=(20,), dtype=np.uint8),
             'boey_item_quantity': spaces.Box(low=-1, high=1, shape=(20, 1), dtype=np.float32),
-            'boey_poke_ids': spaces.Box(low=0, high=255, shape=(12,), dtype=np.uint8),
-            'boey_poke_type_ids': spaces.Box(low=0, high=255, shape=(12, 2), dtype=np.uint8),
-            'boey_poke_move_ids': spaces.Box(low=0, high=255, shape=(12, 4), dtype=np.uint8),
-            'boey_poke_move_pps': spaces.Box(low=0, high=1, shape=(12, 4, 2), dtype=np.float32),
-            'boey_poke_all': spaces.Box(low=0, high=1, shape=(12, 23), dtype=np.float32),
+            # 'boey_poke_ids': spaces.Box(low=0, high=255, shape=(12,), dtype=np.uint8),
+            # 'boey_poke_type_ids': spaces.Box(low=0, high=255, shape=(12, 2), dtype=np.uint8),
+            # 'boey_poke_move_ids': spaces.Box(low=0, high=255, shape=(12, 4), dtype=np.uint8),
+            # 'boey_poke_move_pps': spaces.Box(low=0, high=1, shape=(12, 4, 2), dtype=np.float32),
+            # 'boey_poke_all': spaces.Box(low=0, high=1, shape=(12, 23), dtype=np.float32),
             'boey_event_ids': spaces.Box(low=0, high=2570, shape=(128,), dtype=np.int16),
             'boey_event_step_since': spaces.Box(low=-1, high=1, shape=(128, 1), dtype=np.float32),
         }
@@ -993,11 +999,11 @@ class RedGymEnv(Env):
             'boey_map_step_since': self.boey_get_last_10_map_step_since_obs(), # (10, 1),
             'boey_item_ids': self.boey_get_all_item_ids_obs(), # (20,),
             'boey_item_quantity': self.boey_get_items_quantity_obs(), # (20, 1),
-            'boey_poke_ids': self.boey_get_all_pokemon_ids_obs(), # (12,),
-            'boey_poke_type_ids': self.boey_get_all_pokemon_types_obs(), # (12, 2),
-            'boey_poke_move_ids': self.boey_get_all_move_ids_obs(), # (12, 4),
-            'boey_poke_move_pps': self.boey_get_all_move_pps_obs(), # (12, 4, 2),
-            'boey_poke_all': self.boey_get_all_pokemon_obs(), # (12, 23),
+            # 'boey_poke_ids': self.boey_get_all_pokemon_ids_obs(), # (12,),
+            # 'boey_poke_type_ids': self.boey_get_all_pokemon_types_obs(), # (12, 2),
+            # 'boey_poke_move_ids': self.boey_get_all_move_ids_obs(), # (12, 4),
+            # 'boey_poke_move_pps': self.boey_get_all_move_pps_obs(), # (12, 4, 2),
+            # 'boey_poke_all': self.boey_get_all_pokemon_obs(), # (12, 23),
             'boey_event_ids': self.boey_get_all_event_ids_obs(), # (128,),
             'boey_event_step_since': self.boey_get_all_event_step_since_obs(), # (128, 1),
         }
@@ -1014,16 +1020,16 @@ class RedGymEnv(Env):
         assert red_gym_env_v3_obs['boey_map_step_since'].shape == (10, 1), f'red_gym_env_v3_obs["map_step_since"].shape: {red_gym_env_v3_obs["boey_map_step_since"].shape}'
         assert red_gym_env_v3_obs['boey_item_ids'].shape == (20, ), f'red_gym_env_v3_obs["item_ids"].shape: {red_gym_env_v3_obs["boey_item_ids"].shape}'
         assert red_gym_env_v3_obs['boey_item_quantity'].shape == (20, 1), f'red_gym_env_v3_obs["item_quantity"].shape: {red_gym_env_v3_obs["boey_item_quantity"].shape}'
-        assert red_gym_env_v3_obs['boey_poke_ids'].shape == (12, ), f'red_gym_env_v3_obs["poke_ids"].shape: {red_gym_env_v3_obs["boey_poke_ids"].shape}'
-        assert red_gym_env_v3_obs['boey_poke_type_ids'].shape == (12, 2), f'red_gym_env_v3_obs["poke_type_ids"].shape: {red_gym_env_v3_obs["boey_poke_type_ids"].shape}'
-        assert red_gym_env_v3_obs['boey_poke_move_ids'].shape == (12, 4), f'red_gym_env_v3_obs["poke_move_ids"].shape: {red_gym_env_v3_obs["boey_poke_move_ids"].shape}'
-        assert red_gym_env_v3_obs['boey_poke_move_pps'].shape == (12, 4, 2), f'red_gym_env_v3_obs["poke_move_pps"].shape: {red_gym_env_v3_obs["boey_poke_move_pps"].shape}'
-        assert red_gym_env_v3_obs['boey_poke_all'].shape == (12, self.boey_n_pokemon_features), f'red_gym_env_v3_obs["poke_all"].shape: {red_gym_env_v3_obs["boey_poke_all"].shape}'
+        # assert red_gym_env_v3_obs['boey_poke_ids'].shape == (12, ), f'red_gym_env_v3_obs["poke_ids"].shape: {red_gym_env_v3_obs["boey_poke_ids"].shape}'
+        # assert red_gym_env_v3_obs['boey_poke_type_ids'].shape == (12, 2), f'red_gym_env_v3_obs["poke_type_ids"].shape: {red_gym_env_v3_obs["boey_poke_type_ids"].shape}'
+        # assert red_gym_env_v3_obs['boey_poke_move_ids'].shape == (12, 4), f'red_gym_env_v3_obs["poke_move_ids"].shape: {red_gym_env_v3_obs["boey_poke_move_ids"].shape}'
+        # assert red_gym_env_v3_obs['boey_poke_move_pps'].shape == (12, 4, 2), f'red_gym_env_v3_obs["poke_move_pps"].shape: {red_gym_env_v3_obs["boey_poke_move_pps"].shape}'
+        # assert red_gym_env_v3_obs['boey_poke_all'].shape == (12, self.boey_n_pokemon_features), f'red_gym_env_v3_obs["poke_all"].shape: {red_gym_env_v3_obs["boey_poke_all"].shape}'
         assert red_gym_env_v3_obs['boey_event_ids'].shape == (128, ), f'red_gym_env_v3_obs["event_ids"].shape: {red_gym_env_v3_obs["boey_event_ids"].shape}' # alleged to be (10,). actually (128,)
         assert red_gym_env_v3_obs['boey_event_step_since'].shape == (128, 1), f'red_gym_env_v3_obs["event_step_since"].shape: {red_gym_env_v3_obs["boey_event_step_since"].shape}' # alleged to be (10, 1). actually (128, 1)
         
         return {
-            # "screen": game_pixels_render, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
+            "screen": game_pixels_render, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
             "visited_mask": visited_mask, # (72, 20, 1) reduce_res=True; (144, 40, 1) reduce_res=False
         } | ({"global_map": global_map} if self.use_global_map else {}) | red_gym_env_v3_obs
 
@@ -2939,7 +2945,7 @@ class RedGymEnv(Env):
     def boey_env_class_init(self):
 
         self.boey_debug = self.env_config['boey_debug']
-        self.boey_s_path = Path(self.env_config['boey_session_path'])
+        self.boey_s_path = Path(self.env_config['session_path'])
         self.boey_save_final_state = self.env_config['boey_save_final_state']
         self.boey_print_rewards = self.env_config['boey_print_rewards']
         self.boey_vec_dim = 4320 #1000

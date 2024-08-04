@@ -134,7 +134,7 @@ env:
   boey_print_rewards: False
   boey_save_video: False
   boey_fast_video: False
-  boey_session_path: boey_session
+  session_path: boey_session
   boey_gb_path: red.gb
   boey_debug: False
   boey_sim_frame_dist: 2000000.0
@@ -142,8 +142,8 @@ env:
   boey_reward_scale: 4
   boey_extra_buttons: False
   boey_restricted_start_menu: False
-  boey_noop_button: False # True
-  boey_swap_button: False # True
+  boey_noop_button: True # True
+  boey_swap_button: True # True
   boey_enable_item_manager: False
   boey_level_reward_badge_scale: 1.0
   # boey_randomize_first_ep_split_cnt: boey_num_cpu
@@ -151,7 +151,7 @@ env:
   boey_save_state_dir: env19_release
   boey_explore_weight: 1.5  # 3
   boey_special_exploration_scale: 1.0  # double the exploration for special maps (caverns)
-  boey_enable_stage_manager: False
+  boey_enable_stage_manager: True # False
   boey_enable_item_purchaser: False
   boey_auto_skip_anim: False # True (testing)
   boey_auto_skip_anim_frames: 8
@@ -159,6 +159,7 @@ env:
   boey_total_envs: boey_num_cpu
   boey_level_manager_eval_mode: False  # True = full run
   # boey_randomization: 0.3
+  add_boey_obs: True
 
 
 
@@ -191,8 +192,8 @@ train:
 
   num_envs: 96 # 24 # 288 # 96 # 288 # 96
   num_workers: 24 # 24 # 24
-  env_batch_size: 24 # 32 # 72 # 32 # 72 # 8
-  env_pool: False # True
+  env_batch_size: 32 # 32 # 72 # 32 # 72 # 8
+  env_pool: True # True
   zero_copy: False
 
   verbose: True
@@ -204,7 +205,7 @@ train:
   cpu_offload: False # Should be False
   pool_kernel: [0]
   load_optimizer_state: False
-  use_rnn: False # True False, for testing
+  use_rnn: True # False # True False, for testing
   async_wrapper: False
   archive_states: False
 
@@ -243,12 +244,16 @@ wrappers:
         full_reset_frequency: 1
         jitter: 0
 
+
   stream_only:
-    - stream_wrapper.StreamWrapper:
-        user: bet_bet_bet 
-    - exploration.OnResetExplorationWrapper:
-        full_reset_frequency: 1
-        jitter: 1
+    # - stream_wrapper.StreamWrapper:
+    #     user: bet_bet_bet 
+    - stage_manager_wrapper.StageManagerWrapper: {}
+    # - exploration.OnResetExplorationWrapper:
+    #     full_reset_frequency: 1
+    #     jitter: 1
+    - boey_obs_encode.ObsWrapper: {}
+
 
   fixed_reset_value:
     - stream_wrapper.StreamWrapper:

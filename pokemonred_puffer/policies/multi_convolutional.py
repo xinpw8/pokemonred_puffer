@@ -1,18 +1,14 @@
 # multi_convolutional_policy.py
 import torch
 from torch import nn
-
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
 
 from pokemonred_puffer.data_files.events import REQUIRED_EVENTS
 from pokemonred_puffer.data_files.items import Items as ItemsThatGuy
 import pufferlib.emulation
 import pufferlib.models
 import pufferlib.pytorch
-import torch._dynamo
-
-# Suppress errors and fall back to eager mode
-torch._dynamo.config.suppress_errors = True
-# Disable nativization of tensors
 pufferlib.pytorch.nativize_tensor = torch.compiler.disable(pufferlib.pytorch.nativize_tensor)
 
 from pokemonred_puffer.environment import PIXEL_VALUES
@@ -61,18 +57,18 @@ class MultiConvolutionalPolicy(nn.Module):
         self.num_actions = env.single_action_space.n
         self.channels_last = channels_last
         self.downsample = downsample
-        # screen_network_channels = boey_observation_space['screen'].shape[0]
-        # self.screen_network = nn.Sequential(
-        #     nn.Conv2d(screen_network_channels, 32*2, kernel_size=8, stride=4),
-        #     nn.ReLU(),
-        #     nn.Conv2d(64, 64, kernel_size=3, stride=2),
-        #     nn.ReLU(),
-        #     nn.Conv2d(64, 64, kernel_size=3, stride=1),
-        #     nn.ReLU(),
-        #     nn.Flatten(),
-        # )
+        screen_network_channels = boey_observation_space['screen'].shape[0]
+        self.screen_network = nn.Sequential(
+            nn.Conv2d(screen_network_channels, 32*2, kernel_size=8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
         self.encode_linear = nn.Sequential(
-            nn.Linear(2791, hidden_size), # previously 7111 with compile = off; 12871 (with 'screen' obs)
+            nn.Linear(11520, hidden_size), # 12871 (with 'screen' obs)
             nn.ReLU(),
         )
 
@@ -230,25 +226,35 @@ class MultiConvolutionalPolicy(nn.Module):
         else:
             raise ValueError("Expected observations to be a dictionary")
 
-        # print(f"Initial boey_image shape: {boey_image.shape}")
-        # breakpoint()
-        if boey_image.ndim == 3:
-            boey_image = boey_image.unsqueeze(0)  # (1, 72, 80, 1)
-        elif boey_image.ndim == 2:
-            boey_image = boey_image.unsqueeze(0).unsqueeze(0)  # (1, 72, 80, 1)
 
-        # Ensure the last dimension is added if missing
+        if boey_image.ndim == 3:
+            boey_image = boey_image.unsqueeze(0)
         if boey_image.shape[-1] != 1:
             boey_image = boey_image.unsqueeze(-1)
-
-        # Remove the extra dimension if it exists
         if boey_image.shape[-1] == 1:
             boey_image = boey_image.squeeze(-1)
-
-        # print(f"Adjusted boey_image shape: {boey_image.shape}")
-
         boey_image = boey_image.float()
         img = self.cnn_linear(self.cnn(boey_image))
+        
+        # # print(f"Initial boey_image shape: {boey_image.shape}")
+        # # breakpoint()
+        # if boey_image.ndim == 3:
+        #     boey_image = boey_image.unsqueeze(0)  # (1, 72, 80, 1)
+        # elif boey_image.ndim == 2:
+        #     boey_image = boey_image.unsqueeze(0).unsqueeze(0)  # (1, 72, 80, 1)
+
+        # # Ensure the last dimension is added if missing
+        # if boey_image.shape[-1] != 1:
+        #     boey_image = boey_image.unsqueeze(-1)
+
+        # # Remove the extra dimension if it exists
+        # if boey_image.shape[-1] == 1:
+        #     boey_image = boey_image.squeeze(-1)
+
+        # # print(f"Adjusted boey_image shape: {boey_image.shape}")
+
+        # boey_image = boey_image.float()
+        # img = self.cnn_linear(self.cnn(boey_image))
 
         # print(f"Image after CNN shape: {img.shape}")
 
@@ -273,42 +279,42 @@ class MultiConvolutionalPolicy(nn.Module):
         else:
             minimap = None
 
-        if 'boey_poke_move_ids' in observations:
-            embedded_poke_move_ids = self.poke_move_ids_embedding(observations['boey_poke_move_ids'].to(torch.int))
-            poke_move_pps = observations['boey_poke_move_pps']
-            poke_moves = torch.cat([embedded_poke_move_ids, poke_move_pps], dim=-1)
-            poke_moves = self.move_fc_relu(poke_moves)
-            poke_moves = self.move_max_pool(poke_moves).squeeze(-2)
-        else:
-            poke_moves = None
+        # if 'boey_poke_move_ids' in observations:
+        #     embedded_poke_move_ids = self.poke_move_ids_embedding(observations['boey_poke_move_ids'].to(torch.int))
+        #     poke_move_pps = observations['boey_poke_move_pps']
+        #     poke_moves = torch.cat([embedded_poke_move_ids, poke_move_pps], dim=-1)
+        #     poke_moves = self.move_fc_relu(poke_moves)
+        #     poke_moves = self.move_max_pool(poke_moves).squeeze(-2)
+        # else:
+        #     poke_moves = None
 
-        if 'boey_poke_type_ids' in observations:
-            embedded_poke_type_ids = self.poke_type_ids_embedding(observations['boey_poke_type_ids'].to(torch.int))
-            poke_types = torch.sum(embedded_poke_type_ids, dim=-2)
-        else:
-            poke_types = None
+        # if 'boey_poke_type_ids' in observations:
+        #     embedded_poke_type_ids = self.poke_type_ids_embedding(observations['boey_poke_type_ids'].to(torch.int))
+        #     poke_types = torch.sum(embedded_poke_type_ids, dim=-2)
+        # else:
+        #     poke_types = None
 
-        if 'boey_poke_ids' in observations:
-            embedded_poke_ids = self.poke_ids_embedding(observations['boey_poke_ids'].to(torch.int))
-            poke_ids = embedded_poke_ids
-        else:
-            poke_ids = None
+        # if 'boey_poke_ids' in observations:
+        #     embedded_poke_ids = self.poke_ids_embedding(observations['boey_poke_ids'].to(torch.int))
+        #     poke_ids = embedded_poke_ids
+        # else:
+        #     poke_ids = None
 
-        if 'boey_poke_all' in observations:
-            poke_stats = observations['boey_poke_all']
-        else:
-            poke_stats = None
+        # if 'boey_poke_all' in observations:
+        #     poke_stats = observations['boey_poke_all']
+        # else:
+        #     poke_stats = None
 
-        pokemon_concat = torch.cat([poke_moves, poke_types, poke_ids, poke_stats], dim=-1)
-        pokemon_features = self.poke_fc_relu(pokemon_concat)
+        # pokemon_concat = torch.cat([poke_moves, poke_types, poke_ids, poke_stats], dim=-1)
+        # pokemon_features = self.poke_fc_relu(pokemon_concat)
 
-        party_pokemon_features = pokemon_features[..., :6, :]
-        poke_party_head = self.poke_party_head(party_pokemon_features)
-        poke_party_head = self.poke_party_head_max_pool(party_pokemon_features).squeeze(-2)
+        # party_pokemon_features = pokemon_features[..., :6, :]
+        # poke_party_head = self.poke_party_head(party_pokemon_features)
+        # poke_party_head = self.poke_party_head_max_pool(party_pokemon_features).squeeze(-2)
 
-        opp_pokemon_features = pokemon_features[..., 6:, :]
-        poke_opp_head = self.poke_opp_head(opp_pokemon_features)
-        poke_opp_head = self.poke_opp_head_max_pool(poke_opp_head).squeeze(-2)
+        # opp_pokemon_features = pokemon_features[..., 6:, :]
+        # poke_opp_head = self.poke_opp_head(opp_pokemon_features)
+        # poke_opp_head = self.poke_opp_head_max_pool(poke_opp_head).squeeze(-2)
 
         if 'boey_item_ids' in observations:
             embedded_item_ids = self.item_ids_embedding(observations['boey_item_ids'].to(torch.int))
@@ -344,19 +350,20 @@ class MultiConvolutionalPolicy(nn.Module):
 
         boey_features_list = [
             img,
-            minimap,
-            poke_party_head,
-            poke_opp_head,
+            minimap.unsqueeze(0),
             item_features,
             event_features.squeeze(-1) if event_features is not None else None,
             vector,
             map_features,
-        ]
+        ] #             poke_party_head, poke_opp_head,
         boey_features = [feature.float() for feature in boey_features_list if feature is not None]
+        squeezed_boey_features = [feature.squeeze(0) for feature in boey_features if feature.shape == 3]
+        boey_features = squeezed_boey_features
 
-        # screen = observations["screen"]
+
+        screen = observations["screen"]
         visited_mask = observations["visited_mask"]
-        # restored_shape = (screen.shape[0], screen.shape[1], screen.shape[2] * 4, screen.shape[3])
+        restored_shape = (screen.shape[0], screen.shape[1], screen.shape[2] * 4, screen.shape[3])
         if self.use_global_map:
             global_map = observations["global_map"]
             restored_global_map_shape = (
@@ -366,37 +373,37 @@ class MultiConvolutionalPolicy(nn.Module):
                 global_map.shape[3],
             )
 
-        # if self.two_bit:
-        #     screen = torch.index_select(
-        #         self.screen_buckets,
-        #         0,
-        #         ((screen.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift).flatten().int(),
-        #     ).reshape(restored_shape)
-        #     visited_mask = torch.index_select(
-        #         self.linear_buckets,
-        #         0,
-        #         ((visited_mask.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
-        #         .flatten()
-        #         .int(),
-        #     ).reshape(restored_shape)
-        #     if self.use_global_map:
-        #         global_map = torch.index_select(
-        #             self.linear_buckets,
-        #             0,
-        #             ((global_map.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
-        #             .flatten()
-        #             .int(),
-        #         ).reshape(restored_global_map_shape)
+        if self.two_bit:
+            screen = torch.index_select(
+                self.screen_buckets,
+                0,
+                ((screen.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift).flatten().int(),
+            ).reshape(restored_shape)
+            visited_mask = torch.index_select(
+                self.linear_buckets,
+                0,
+                ((visited_mask.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
+                .flatten()
+                .int(),
+            ).reshape(restored_shape)
+            if self.use_global_map:
+                global_map = torch.index_select(
+                    self.linear_buckets,
+                    0,
+                    ((global_map.reshape((-1, 1)) & self.unpack_mask) >> self.unpack_shift)
+                    .flatten()
+                    .int(),
+                ).reshape(restored_global_map_shape)
 
-        # screen = screen.float()
+        screen = screen.float()
         visited_mask = visited_mask.float()
 
-        # screen = screen.flatten(start_dim=1)
+        screen = screen.flatten(start_dim=1)
         visited_mask = visited_mask.flatten(start_dim=1)
 
         combined_features = torch.cat(
             [
-                # screen,
+                screen,
                 visited_mask,
                 *boey_features,
             ],

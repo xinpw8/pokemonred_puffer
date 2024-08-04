@@ -320,8 +320,17 @@ import pufferlib.utils
 from pokemonred_puffer.cleanrl_puffer import CleanPuffeRL, rollout
 from pokemonred_puffer.environment import RedGymEnv
 from pokemonred_puffer.wrappers.async_io import AsyncWrapper
+from pokemonred_puffer.wrappers.stream_wrapper import StreamWrapper
+from pokemonred_puffer.wrappers.stage_manager_wrapper import StageManagerWrapper
+
 import uuid
 from functools import partial
+
+import logging
+# initialize logging
+logging.basicConfig(level=logging.INFO)
+logging.getLogger().setLevel(logging.INFO)
+logging.info('Logging initialized (train.py)')
 
 ## Modified make_policy to include Boey observations
 def make_policy(env, policy_name, args):
@@ -410,6 +419,9 @@ def make_env_creator(
         async_config: dict[str, Queue] | None = None,
     ) -> pufferlib.emulation.GymnasiumPufferEnv:
         env = reward_class(env_config, reward_config)
+        
+        logging.info(f'env_config: {env_config}\nwrappers_config: {wrappers_config}\nreward_config: {reward_config}\nasync_config: {async_config}')
+        
         for cfg, (_, wrapper_class) in zip(wrappers_config, wrapper_classes):
             env = wrapper_class(env, pufferlib.namespace(**[x for x in cfg.values()][0]))
         if async_wrapper and async_config:
@@ -521,6 +533,10 @@ def train(
         zero_copy=args.train.zero_copy,
         backend=vec,
     )
+    
+    # logging.info(f'env_kwargs: {env_kwargs}')
+    # logging.info(f'args: {args}')
+    
     policy = make_policy(vecenv.driver_env, args.policy_name, args)
 
     args.train.env = "Pokemon Red"
