@@ -43,7 +43,7 @@ class StreamWrapper(gym.Wrapper):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self.websocket = self.loop.run_until_complete(self.establish_wc_connection())
-        self.upload_interval = 150 # 300
+        self.upload_interval = 30 # 75 # 150 # 300
         self.steam_step_counter = 0
         self.coord_list = []
         if hasattr(env, "pyboy"):
@@ -114,8 +114,11 @@ class StreamWrapper(gym.Wrapper):
         except:  # noqa
             self.websocket = None
 
-    def reset(self, *args, **kwargs):
-        return self.env.reset(*args, **kwargs)
+    # def reset(self, *args, **kwargs):
+    def reset(self, seed=None, options=None):
+        obs, info = self.env.reset()
+        full_obs = dict(obs, **self.env._get_obs())
+        return full_obs, info # self.env.reset(*args, **kwargs)
     
     # Save the coordinates to a file
     def save_coords_to_file(self):

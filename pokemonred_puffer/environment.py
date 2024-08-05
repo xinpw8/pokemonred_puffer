@@ -1247,7 +1247,11 @@ class RedGymEnv(Env):
         self.boey_update_num_poke()
         # self.boey_update_num_mon_in_box()
         if self.boey_enable_stage_manager:
-            self.boey_update_stage_manager()
+            try:
+                self.boey_update_stage_manager()
+            except Exception as e:
+                logging.error(f'env_id: {self.env_id}, unable to init self.boey_update_stage_manager(): ERROR: {e}')
+                pass
 
         new_reward = self.boey_update_reward()
         

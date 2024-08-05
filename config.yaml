@@ -153,10 +153,10 @@ env:
   boey_special_exploration_scale: 1.0  # double the exploration for special maps (caverns)
   boey_enable_stage_manager: True # False
   boey_enable_item_purchaser: False
-  boey_auto_skip_anim: False # True (testing)
+  boey_auto_skip_anim: True # False # True (testing)
   boey_auto_skip_anim_frames: 8
   boey_early_stopping_min_reward: 2.0
-  boey_total_envs: boey_num_cpu
+  boey_total_envs: 1
   boey_level_manager_eval_mode: False  # True = full run
   # boey_randomization: 0.3
   add_boey_obs: True
@@ -167,18 +167,18 @@ train:
   seed: 1
   torch_deterministic: True
   device: cuda
-  compile: True # testing
+  compile: False # testing
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
   total_timesteps: 100_000_000_000
-  batch_size: 65536 # 8192 for testing
+  batch_size: 2048 # 65536 # 2048 for testing
   minibatch_size: 2048
   learning_rate: 2.0e-4
   anneal_lr: False
   gamma: 0.998
   gae_lambda: 0.95
-  num_minibatches: 4
-  update_epochs: 3  # 1 for testing
+  num_minibatches: 1 # 4 # 1 for testing
+  update_epochs: 1 # 3  # 1 for testing
   norm_adv: True
   clip_coef: 0.1
   clip_vloss: True
@@ -190,10 +190,10 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 96 # 24 # 288 # 96 # 288 # 96
-  num_workers: 24 # 24 # 24
-  env_batch_size: 32 # 32 # 72 # 32 # 72 # 8
-  env_pool: True # True
+  num_envs: 1 # 96 # 24 # 288 # 96 # 288 # 96
+  num_workers: 1 # 24 # 24 # 24
+  env_batch_size: 1 # 32 # 72 # 32 # 72 # 8
+  env_pool: False # True # True
   zero_copy: False
 
   verbose: True
@@ -206,7 +206,7 @@ train:
   pool_kernel: [0]
   load_optimizer_state: False
   use_rnn: True # False # True False, for testing
-  async_wrapper: False
+  async_wrapper: False # True # False
   archive_states: False
 
   # swarm_frequency: 500
@@ -246,13 +246,15 @@ wrappers:
 
 
   stream_only:
-    # - stream_wrapper.StreamWrapper:
-    #     user: bet_bet_bet 
     - stage_manager_wrapper.StageManagerWrapper: {}
-    # - exploration.OnResetExplorationWrapper:
-    #     full_reset_frequency: 1
-    #     jitter: 1
+    - stream_wrapper.StreamWrapper:
+        user: bet_bet_bet 
+    - exploration.OnResetExplorationWrapper:
+        full_reset_frequency: 1
+        jitter: 1
     - boey_obs_encode.ObsWrapper: {}
+
+    - episode_stats.EpisodeStatsWrapper: {}
 
 
   fixed_reset_value:
