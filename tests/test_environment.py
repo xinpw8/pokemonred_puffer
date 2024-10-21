@@ -1,3 +1,4 @@
+import os
 from typing import Generator
 from unittest.mock import Mock, patch
 
@@ -12,7 +13,8 @@ from pokemonred_puffer.environment import RedGymEnv
 def environment_fixture() -> Generator[RedGymEnv, None, None]:
     with patch.object(pokemonred_puffer.environment, "PyBoy", autospec=True) as pyboy_mock:
         pyboy_mock.return_value.symbol_lookup.return_value = (1, 2)
-        env_config: DictConfig = OmegaConf.load("config.yaml").env
+        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config.yaml"))
+        env_config = OmegaConf.load(config_path).env
         env_config.gb_path = ""
         yield RedGymEnv(env_config=env_config)
 
